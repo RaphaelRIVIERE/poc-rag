@@ -1,0 +1,27 @@
+# Environment
+env/
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Secrets
+.env
+
+# Data & indexes
+data/raw/
+data/processed/
+*.index
+*.pkl
+*.faiss
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
