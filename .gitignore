@@ -18,6 +18,11 @@ index/
 *.pkl
 *.faiss
 
+# Tests & coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
 # IDE
 .vscode/
 .idea/
