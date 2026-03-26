@@ -1,9 +1,22 @@
+"""
+Tests unitaires pour scripts/clean_events.py
+
+Couvre les fonctions de nettoyage et de validation des événements bruts :
+  - strip_html         : suppression des balises HTML d'une chaîne de caractères
+  - clean_event        : nettoyage d'un événement brut (filtre les titres vides)
+
+Les tests sont organisés en trois groupes :
+  1. Validation des données brutes (format, unicité des uid, région, plage de dates)
+  2. Tests unitaires des fonctions de nettoyage (avec données mockées stables)
+  3. Vérification des données nettoyées produites (text non vide, uid uniques)
+"""
+
 import json
 import pytest
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from scripts.clean_events import clean_event, clean_events, strip_html
+from scripts.clean_events import clean_event, strip_html
 
 RAW_FILE   = Path(__file__).parent.parent / "data" / "raw_events.json"
 CLEAN_FILE = Path(__file__).parent.parent / "data" / "clean_events.json"
@@ -61,20 +74,25 @@ def clean_events_data():
     return [e for e in (clean_event(r) for r in MOCK_RAW_EVENTS) if e is not None]
 
 
-# Tests sur les données brutes (données mockées, résultats stables)
+# ---------------------------------------------------------------------------
+# Données brutes
+# ---------------------------------------------------------------------------
 
 def test_raw_file_exists_and_not_empty():
+    """Vérifie que le fichier raw_events.json existe et contient au moins un événement."""
     assert RAW_FILE.exists(), "raw_events.json introuvable"
     data = json.loads(RAW_FILE.read_text(encoding="utf-8"))
     assert len(data) > 0, "raw_events.json est vide"
 
 
 def test_raw_uid_unique(raw_events):
+    """Vérifie qu'il n'y a pas de doublons d'uid dans les données brutes."""
     uids = [e["uid"] for e in raw_events]
     assert len(uids) == len(set(uids)), "Des doublons d'uid existent dans les données brutes"
 
 
 def test_raw_location_region(raw_events):
+    """Vérifie que tous les événements appartiennent bien à la région Île-de-France."""
     for event in raw_events:
         region = event.get("location_region")
         assert region == "Île-de-France", (
@@ -83,7 +101,11 @@ def test_raw_location_region(raw_events):
 
 
 def test_raw_dates_in_range(raw_events):
-    # Date fixe — le test ne dépend pas de datetime.now()
+    """Vérifie que les dates des événements sont dans la plage autorisée.
+
+    La plage est calculée par rapport à FIXED_NOW (date fixe) pour garantir
+    des résultats stables indépendamment de la date d'exécution des tests.
+    """
     date_min = FIXED_NOW - timedelta(days=365)
     date_max = FIXED_NOW + timedelta(days=180)
 
@@ -100,9 +122,12 @@ def test_raw_dates_in_range(raw_events):
         )
 
 
-# Tests unitaires sur les fonctions de nettoyage
+# ---------------------------------------------------------------------------
+# Fonctions de nettoyage
+# ---------------------------------------------------------------------------
 
 def test_clean_event_sans_titre_retourne_none():
+    """Un événement sans titre (title_fr vide) doit être rejeté et retourner None."""
     event_sans_titre = {
         "uid": "test-001",
         "title_fr": "",
@@ -114,6 +139,7 @@ def test_clean_event_sans_titre_retourne_none():
 
 
 def test_strip_html_supprime_balises():
+    """strip_html doit retourner un texte sans aucune balise HTML tout en conservant le contenu textuel."""
     html = "<p>Bonjour <strong>le monde</strong> !</p>"
     result = strip_html(html)
     assert "<" not in result and ">" not in result
@@ -121,9 +147,12 @@ def test_strip_html_supprime_balises():
     assert "le monde" in result
 
 
-# Tests sur les données nettoyées
+# ---------------------------------------------------------------------------
+# Données nettoyées
+# ---------------------------------------------------------------------------
 
 def test_clean_text_non_vide(clean_events_data):
+    """Chaque événement nettoyé doit avoir un champ 'text' non vide (utilisé pour l'indexation)."""
     for event in clean_events_data:
         assert event.get("text"), (
             f"Le champ 'text' est vide pour l'événement {event.get('uid')}"
@@ -131,5 +160,6 @@ def test_clean_text_non_vide(clean_events_data):
 
 
 def test_clean_uid_unique(clean_events_data):
+    """Vérifie qu'il n'y a pas de doublons d'uid dans les données nettoyées."""
     uids = [e["uid"] for e in clean_events_data]
     assert len(uids) == len(set(uids)), "Des doublons d'uid existent dans les données nettoyées"
