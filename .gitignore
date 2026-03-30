@@ -18,6 +18,9 @@ index/
 *.pkl
 *.faiss
 
+# Evaluation results
+results/
+
 # Tests & coverage
 .coverage
 htmlcov/

@@ -69,17 +69,19 @@ def split_documents(docs: list) -> list:
     return chunks
 
 
-def build_faiss_index(chunks: list) -> FAISS:
+def get_embeddings() -> MistralAIEmbeddings:
     api_key = os.getenv("MISTRAL_API_KEY")
     if not api_key:
         raise ValueError("MISTRAL_API_KEY manquante — verifiez votre fichier .env")
-
-    print("Generation des embeddings via Mistral AI...")
-    embeddings = MistralAIEmbeddings(
+    return MistralAIEmbeddings(
         model="mistral-embed",
         api_key=SecretStr(api_key),
     )
-    index = FAISS.from_documents(chunks, embeddings)
+
+
+def build_faiss_index(chunks: list) -> FAISS:
+    print("Generation des embeddings via Mistral AI...")
+    index = FAISS.from_documents(chunks, get_embeddings())
     print("Index FAISS construit.")
     return index
 
