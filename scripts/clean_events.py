@@ -6,6 +6,26 @@ INPUT_FILE  = Path(__file__).parent.parent / "data" / "raw_events.json"
 OUTPUT_FILE = Path(__file__).parent.parent / "data" / "clean_events.json"
 
 
+def parse_label_fr(value: str | None) -> str:
+    """Extrait le label français d'un champ JSON stringifié (ex: attendancemode, status)."""
+    if not value:
+        return ""
+    try:
+        return json.loads(value).get("label", {}).get("fr", "")
+    except (json.JSONDecodeError, AttributeError):
+        return ""
+
+
+def _build_address(address: str, postalcode: str, city: str) -> str:
+    """Construit une adresse complète sans doublons (comparaison insensible à la casse)."""
+    parts = [address]
+    if postalcode and postalcode not in address:
+        parts.append(postalcode)
+    if city and city.lower() not in address.lower():
+        parts.append(city)
+    return ", ".join(parts)
+
+
 def strip_html(text: str) -> str:
     """Supprime les balises HTML et normalise les espaces."""
     if not text:
@@ -25,17 +45,26 @@ def clean_event(raw: dict) -> dict | None:
         return None
 
     description      = (raw.get("description_fr") or "").strip()
+    if not description:
+        description = title  # fallback : utiliser le titre si la description est vide
     long_description = strip_html(raw.get("longdescription_fr") or "")
     conditions       = (raw.get("conditions_fr") or "").strip()
     keywords         = raw.get("keywords_fr") or []
 
-    date_begin = raw.get("firstdate_begin") or ""
-    date_end   = raw.get("lastdate_end") or ""
     daterange  = (raw.get("daterange_fr") or "").strip()
+
+    location_postalcode = (raw.get("location_postalcode") or "")
+    age_min          = raw.get("age_min")
+    age_max_raw      = raw.get("age_max")
+    age_max          = None if (age_max_raw is None or age_max_raw >= 99) else age_max_raw
+    accessibility    = raw.get("accessibility_label_fr") or []
+    attendancemode   = parse_label_fr(raw.get("attendancemode"))
+    status           = parse_label_fr(raw.get("status"))
 
     location_name    = (raw.get("location_name") or "").strip()
     location_address = (raw.get("location_address") or "").strip()
     location_city    = (raw.get("location_city") or "").strip()
+    location_district = (raw.get("location_district") or "").strip()
     location_dept    = (raw.get("location_department") or "").strip()
     location_region  = (raw.get("location_region") or "").strip()
     coordinates      = raw.get("location_coordinates")  # dict {lon, lat} ou None
@@ -43,18 +72,25 @@ def clean_event(raw: dict) -> dict | None:
     url = (raw.get("canonicalurl") or "").strip()
 
     # Champ texte combiné pour la vectorisation RAG
+    details = long_description[len(description):].strip(" .") if long_description.startswith(description) else long_description
     parts = [
         f"Titre : {title}",
         f"Description : {description}" if description else "",
-        f"Détails : {long_description}" if long_description else "",
+        f"Détails : {details}" if details else "",
         f"Conditions : {conditions}" if conditions else "",
-        f"Mots-clés : {', '.join(keywords)}" if keywords else "",
-        f"Dates : {daterange}" if daterange else f"Début : {date_begin}",
+        f"Dates : {daterange}" if daterange else "",
         f"Lieu : {location_name}" if location_name else "",
-        f"Adresse : {location_address}" if location_address else "",
-        f"Ville : {location_city}" if location_city else "",
+        f"Adresse : {_build_address(location_address, location_postalcode, location_city)}" if location_address else "",
+        f"Quartier : {location_district}" if location_district else "",
         f"Département : {location_dept}" if location_dept else "",
         f"Région : {location_region}" if location_region else "",
+        f"Âge : {age_min}-{age_max} ans" if age_min is not None and age_max is not None
+        else f"Âge : à partir de {age_min} ans" if age_min is not None
+        else f"Âge : jusqu'à {age_max} ans" if age_max is not None
+        else "",
+        f"Accessibilité : {', '.join(accessibility)}" if accessibility else "",
+        f"Mode : {attendancemode}" if attendancemode else "",
+        f"Statut : {status}" if status else "",
     ]
     text = " | ".join(p for p in parts if p)
 
@@ -65,15 +101,20 @@ def clean_event(raw: dict) -> dict | None:
         "long_description": long_description,
         "conditions":       conditions,
         "keywords":         keywords,
-        "date_begin":       date_begin,
-        "date_end":         date_end,
         "daterange":        daterange,
         "location_name":    location_name,
         "location_address": location_address,
-        "location_city":    location_city,
+        "location_city":     location_city,
+        "location_district": location_district,
+        "location_postalcode": location_postalcode,
         "location_dept":    location_dept,
         "location_region":  location_region,
         "coordinates":      coordinates,
+        "age_min":          age_min,
+        "age_max":          age_max,
+        "accessibility":    accessibility,
+        "attendancemode":   attendancemode,
+        "status":           status,
         "url":              url,
         "text":             text,
     }
