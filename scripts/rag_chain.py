@@ -12,7 +12,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from pydantic import SecretStr
 from langchain_community.vectorstores import FAISS
-from langchain_mistralai import MistralAIEmbeddings, ChatMistralAI
+from langchain_mistralai import ChatMistralAI
+from scripts.build_index import get_embeddings
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
@@ -36,17 +37,9 @@ Réponse :"""
 
 
 def load_index() -> FAISS:
-    api_key = os.getenv("MISTRAL_API_KEY")
-    if not api_key:
-        raise ValueError("MISTRAL_API_KEY manquante — vérifiez votre fichier .env")
-
-    embeddings = MistralAIEmbeddings(
-        model="mistral-embed",
-        api_key=SecretStr(api_key),
-    )
     return FAISS.load_local(
         str(INDEX_DIR),
-        embeddings,
+        get_embeddings(),
         allow_dangerous_deserialization=True,
     )
 
