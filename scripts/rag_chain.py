@@ -4,6 +4,9 @@ rag_chain.py — Chaîne RAG : recherche FAISS + génération Mistral.
 Utilisation :
     from scripts.rag_chain import ask
     réponse = ask("Quels concerts sont prévus à Paris en avril ?")
+
+Le provider d'embeddings est contrôlé par la variable d'environnement EMBEDDING_PROVIDER
+(valeurs : "huggingface" ou "mistral", défaut : "huggingface").
 """
 
 import os
@@ -13,14 +16,12 @@ from dotenv import load_dotenv
 from pydantic import SecretStr
 from langchain_community.vectorstores import FAISS
 from langchain_mistralai import ChatMistralAI
-from scripts.build_index import get_embeddings
+from scripts.build_index import get_embeddings, get_index_dir
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 
 load_dotenv()
-
-INDEX_DIR = Path(__file__).parent.parent / "index" / "faiss_index"
 
 PROMPT_TEMPLATE = PromptTemplate.from_template(
     """Tu es un assistant spécialisé dans les événements culturels.
@@ -36,16 +37,18 @@ Réponse :"""
 )
 
 
-def load_index() -> FAISS:
+def load_index(provider: str | None = None) -> FAISS:
+    if provider is None:
+        provider = os.getenv("EMBEDDING_PROVIDER", "huggingface")
     return FAISS.load_local(
-        str(INDEX_DIR),
-        get_embeddings(),
+        str(get_index_dir(provider)),
+        get_embeddings(provider),
         allow_dangerous_deserialization=True,
     )
 
 
-def build_chain(index: FAISS):
-    retriever = index.as_retriever(search_kwargs={"k": 5})
+def build_chain(index: FAISS, k: int = 7):
+    retriever = index.as_retriever(search_kwargs={"k": k})
 
     llm = ChatMistralAI(
         model="mistral-small-latest",

@@ -159,30 +159,25 @@ def test_build_faiss_index_avec_embeddings_mock():
     mock_embeddings.embed_documents.return_value = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
     mock_embeddings.embed_query.return_value = [0.1, 0.2, 0.3]
 
-    with patch("scripts.build_index.MistralAIEmbeddings", return_value=mock_embeddings), \
-         patch("os.getenv", return_value="fake-api-key"), \
+    with patch("scripts.build_index.get_embeddings", return_value=mock_embeddings), \
          patch.object(FAISS, "from_documents") as mock_faiss:
 
         mock_index = MagicMock(spec=FAISS)
         mock_faiss.return_value = mock_index
 
         from scripts.build_index import build_faiss_index
-        index = build_faiss_index(chunks)
+        index = build_faiss_index(chunks, provider="huggingface")
 
         mock_faiss.assert_called_once_with(chunks, mock_embeddings)
         assert index is mock_index
 
 
-def test_build_faiss_index_leve_erreur_sans_cle():
-    """build_faiss_index doit lever une ValueError si MISTRAL_API_KEY est absente."""
-    from langchain_core.documents import Document
-
-    chunks = [Document(page_content="test", metadata={})]
-
-    with patch("os.getenv", return_value=None):
+def test_build_faiss_index_leve_erreur_chunks_vides():
+    """build_faiss_index doit lever une erreur si la liste de chunks est vide."""
+    with patch("scripts.build_index.get_embeddings"):
         from scripts.build_index import build_faiss_index
-        with pytest.raises(ValueError, match="MISTRAL_API_KEY"):
-            build_faiss_index(chunks)
+        with pytest.raises(Exception):
+            build_faiss_index([])
 
 
 # ---------------------------------------------------------------------------

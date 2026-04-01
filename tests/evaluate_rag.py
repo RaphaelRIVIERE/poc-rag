@@ -32,7 +32,8 @@ from ragas.run_config import RunConfig
 from ragas.llms import LangchainLLMWrapper
 from ragas.embeddings import LangchainEmbeddingsWrapper
 from pydantic import SecretStr
-from langchain_mistralai import ChatMistralAI, MistralAIEmbeddings
+from langchain_mistralai import ChatMistralAI
+from scripts.build_index import get_embeddings
 
 ANNOTATIONS_PATH = Path(__file__).parent / "annotated_qa.json"
 
@@ -47,7 +48,7 @@ def load_annotations(path: Path) -> list[dict]:
         return json.load(f)
 
 
-def build_ragas_llm_and_embeddings():
+def build_ragas_llm_and_embeddings(provider: str = "huggingface"):
     api_key = os.getenv("MISTRAL_API_KEY")
     if not api_key:
         raise ValueError("MISTRAL_API_KEY manquante — vérifiez votre fichier .env")
@@ -55,9 +56,7 @@ def build_ragas_llm_and_embeddings():
     llm = LangchainLLMWrapper(
         ChatMistralAI(model="mistral-small-latest", api_key=SecretStr(api_key), temperature=0.0)
     )
-    embeddings = LangchainEmbeddingsWrapper(
-        MistralAIEmbeddings(model="mistral-embed", api_key=SecretStr(api_key))
-    )
+    embeddings = LangchainEmbeddingsWrapper(get_embeddings(provider))
     return llm, embeddings
 
 

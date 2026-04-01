@@ -68,6 +68,6 @@ def test_ask_appelle_invoke_avec_la_question():
 def test_load_index_leve_erreur_sans_cle():
     """load_index() doit lever ValueError si MISTRAL_API_KEY est absente."""
     from scripts.rag_chain import load_index
-    with patch("os.getenv", return_value=None):
+    with patch("scripts.build_index.os.getenv", return_value=None):
         with pytest.raises(ValueError, match="MISTRAL_API_KEY"):
-            load_index()
+            load_index(provider="mistral")
