@@ -1,4 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from api.security import verify_api_key
 
 from api.schemas import AskRequest, AskResponse, RebuildResponse
 from scripts.rag_chain import ask
@@ -47,7 +49,7 @@ def ask_question(body: AskRequest):
     return AskResponse(answer=answer)
 
 
-@router.post("/rebuild", response_model=RebuildResponse)
+@router.post("/rebuild", response_model=RebuildResponse, dependencies=[Depends(verify_api_key)])
 def rebuild_index():
     """Reconstruit l'index vectoriel FAISS à partir des données nettoyées."""
     if not DATA_FILE.exists():

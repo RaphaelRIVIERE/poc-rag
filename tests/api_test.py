@@ -1,9 +1,23 @@
+import hashlib
+import pytest
 from unittest.mock import patch, MagicMock
+
 from fastapi.testclient import TestClient
 
 from api.main import app
+from api.security import make_verify_api_key, verify_api_key
 
 client = TestClient(app)
+
+VALID_KEY = "test-api-key"
+VALID_KEY_HASH = hashlib.sha256(VALID_KEY.encode()).hexdigest()
+
+
+@pytest.fixture
+def valid_auth():
+    app.dependency_overrides[verify_api_key] = make_verify_api_key(VALID_KEY_HASH)
+    yield
+    app.dependency_overrides.clear()
 
 
 # GET /health
@@ -65,7 +79,7 @@ def test_ask_erreur_serveur_retourne_500():
 
 # POST /rebuild — cas nominaux
 
-def test_rebuild_succes():
+def test_rebuild_succes(valid_auth):
     """POST /rebuild doit retourner 200 et le nombre de chunks indexés."""
     mock_index = MagicMock()
     with patch("api.routes.DATA_FILE") as mock_data_file, \
@@ -75,19 +89,33 @@ def test_rebuild_succes():
          patch("api.routes.build_faiss_index", return_value=mock_index) as _, \
          patch("api.routes.save_index") as _:
         mock_data_file.exists.return_value = True
-        response = client.post("/rebuild")
+        response = client.post("/rebuild", headers={"X-API-Key": VALID_KEY})
     assert response.status_code == 200
     data = response.json()
     assert data["chunks_indexed"] == 3
     assert "succès" in data["message"]
 
 
+# POST /rebuild — authentification
+
+def test_rebuild_sans_header_retourne_401(valid_auth):
+    """POST /rebuild doit retourner 401 si le header X-API-Key est absent."""
+    response = client.post("/rebuild")
+    assert response.status_code == 401
+
+
+def test_rebuild_cle_invalide_retourne_401(valid_auth):
+    """POST /rebuild doit retourner 401 si la clé API est incorrecte."""
+    response = client.post("/rebuild", headers={"X-API-Key": "mauvaise-cle"})
+    assert response.status_code == 401
+
+
 # POST /rebuild — gestion des erreurs
 
-def test_rebuild_fichier_absent_retourne_503():
+def test_rebuild_fichier_absent_retourne_503(valid_auth):
     """POST /rebuild doit retourner 503 si le fichier de données est absent."""
     with patch("api.routes.DATA_FILE") as mock_data_file:
         mock_data_file.exists.return_value = False
-        response = client.post("/rebuild")
+        response = client.post("/rebuild", headers={"X-API-Key": VALID_KEY})
     assert response.status_code == 503
     assert "clean_events" in response.json()["detail"].lower()
