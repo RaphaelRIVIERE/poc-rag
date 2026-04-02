@@ -19,9 +19,18 @@ def valid_auth():
     yield
     app.dependency_overrides.clear()
 
+# Sécurité — api/security.py
+def test_verify_api_key_non_configuree_retourne_500():
+    """verify() doit retourner 500 si API_KEY n'est pas configurée côté serveur."""
+    from api.security import make_verify_api_key
+    from fastapi import HTTPException
+
+    verify = make_verify_api_key(None)
+    with pytest.raises(HTTPException) as exc_info:
+        verify("une-cle-quelconque")
+    assert exc_info.value.status_code == 500
 
 # GET /health
-
 def test_health_retourne_ok():
     """GET /health doit retourner {"status": "ok"} avec un code 200."""
     response = client.get("/health")
@@ -111,6 +120,20 @@ def test_rebuild_cle_invalide_retourne_401(valid_auth):
 
 
 # POST /rebuild — gestion des erreurs
+
+def test_rebuild_erreur_reconstruction_retourne_500(valid_auth):
+    """POST /rebuild doit retourner 500 si la reconstruction de l'index échoue."""
+    mock_index = MagicMock()
+    with patch("api.routes.DATA_FILE") as mock_data_file, \
+         patch("api.routes.load_events", return_value=[]), \
+         patch("api.routes.events_to_documents", return_value=[]), \
+         patch("api.routes.split_documents", return_value=[]), \
+         patch("api.routes.build_faiss_index", side_effect=RuntimeError("Erreur FAISS")):
+        mock_data_file.exists.return_value = True
+        response = client.post("/rebuild", headers={"X-API-Key": VALID_KEY})
+    assert response.status_code == 500
+    assert "reconstruction" in response.json()["detail"].lower()
+
 
 def test_rebuild_fichier_absent_retourne_503(valid_auth):
     """POST /rebuild doit retourner 503 si le fichier de données est absent."""
