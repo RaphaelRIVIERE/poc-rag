@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from api.security import verify_api_key
 
-from api.schemas import AskRequest, AskResponse, RebuildResponse
+from api.schemas import AskRequest, AskResponse, RebuildResponse, MetadataResponse
 from scripts.rag_chain import ask
 from scripts.build_index import (
     load_events,
@@ -16,15 +16,33 @@ from scripts.build_index import (
 
 router = APIRouter()
 
-
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
-
 @router.get("/health")
 def health():
     """Vérifie que l'API est opérationnelle."""
     return {"status": "ok"}
+
+
+@router.get("/metadata", response_model=MetadataResponse)
+def get_metadata():
+    """Retourne des informations sur la base d'événements indexée."""
+    import json
+    from datetime import datetime
+
+    if not DATA_FILE.exists():
+        raise HTTPException(status_code=503, detail="Fichier de données introuvable.")
+
+    events = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+    departments = sorted({e.get("location_dept", "") for e in events if e.get("location_dept")})
+
+    last_rebuilt = None
+    if INDEX_DIR.exists():
+        last_rebuilt = datetime.fromtimestamp(INDEX_DIR.stat().st_mtime).isoformat(timespec="seconds")
+
+    return MetadataResponse(
+        total_events=len(events),
+        departments=departments,
+        last_rebuilt=last_rebuilt,
+    )
 
 
 @router.post("/ask", response_model=AskResponse)
