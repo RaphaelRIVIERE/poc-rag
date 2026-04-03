@@ -94,29 +94,31 @@ def clean_event(raw: dict) -> dict | None:
     if not description:
         description = title  # fallback : utiliser le titre si la description est vide
     long_description = strip_html(raw.get("longdescription_fr") or "")
-    conditions       = (raw.get("conditions_fr") or "").strip()
-    keywords         = raw.get("keywords_fr") or []
+    conditions = (raw.get("conditions_fr") or "").strip()
+    keywords = raw.get("keywords_fr") or []
 
-    daterange  = (raw.get("daterange_fr") or "").strip()
+    daterange = (raw.get("daterange_fr") or "").strip()
+    firstdate_begin = (raw.get("firstdate_begin") or "").strip()
+    lastdate_end    = (raw.get("lastdate_end") or "").strip()
 
     location_postalcode = (raw.get("location_postalcode") or "")
-    age_min          = raw.get("age_min")
-    age_max_raw      = raw.get("age_max")
-    age_max          = None if (age_max_raw is None or age_max_raw >= 99) else age_max_raw
-    accessibility    = raw.get("accessibility_label_fr") or []
-    attendancemode   = parse_label_fr(raw.get("attendancemode"))
-    status           = parse_label_fr(raw.get("status"))
+    age_min = raw.get("age_min")
+    age_max_raw = raw.get("age_max")
+    age_max = None if (age_max_raw is None or age_max_raw >= 99) else age_max_raw
+    accessibility = raw.get("accessibility_label_fr") or []
+    attendancemode = parse_label_fr(raw.get("attendancemode"))
+    status = parse_label_fr(raw.get("status"))
 
-    location_name    = (raw.get("location_name") or "").strip()
+    location_name = (raw.get("location_name") or "").strip()
     location_address = (raw.get("location_address") or "").strip()
-    location_city    = (raw.get("location_city") or "").strip().title()
+    location_city = (raw.get("location_city") or "").strip().title()
     location_district = normalize_district(
         (raw.get("location_district") or "").strip(),
         location_postalcode,
     )
-    location_dept    = normalize_dept(raw.get("location_department") or "")
-    location_region  = (raw.get("location_region") or "").strip()
-    coordinates      = raw.get("location_coordinates")  # dict {lon, lat} ou None
+    location_dept = normalize_dept(raw.get("location_department") or "")
+    location_region = (raw.get("location_region") or "").strip()
+    coordinates = raw.get("location_coordinates")  # dict {lon, lat} ou None
 
     url = (raw.get("canonicalurl") or "").strip()
 
@@ -151,6 +153,8 @@ def clean_event(raw: dict) -> dict | None:
         "conditions":       conditions,
         "keywords":         keywords,
         "daterange":        daterange,
+        "firstdate_begin":  firstdate_begin,
+        "lastdate_end":     lastdate_end,
         "location_name":    location_name,
         "location_address": location_address,
         "location_city":     location_city,
