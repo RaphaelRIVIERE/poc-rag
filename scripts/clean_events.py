@@ -26,6 +26,30 @@ def _build_address(address: str, postalcode: str, city: str) -> str:
     return ", ".join(parts)
 
 
+DEPT_ALIASES: dict[str, str] = {
+    "paris": "Paris",
+    "seine-et-marne": "Seine-et-Marne",
+    "yvelines": "Yvelines",
+    "essonne": "Essonne",
+    "hauts-de-seine": "Hauts-de-Seine",
+    "seine-saint-denis": "Seine-Saint-Denis",
+    "seine-st-denis": "Seine-Saint-Denis",
+    "seine-st.-denis": "Seine-Saint-Denis",
+    "val-de-marne": "Val-de-Marne",
+    "val-de-marne": "Val-de-Marne",
+    "val-d'oise": "Val-d'Oise",
+    "val-d'oise": "Val-d'Oise",
+}
+
+
+def normalize_dept(name: str) -> str:
+    """Normalise le nom d'un département vers sa forme canonique."""
+    if not name:
+        return name
+    key = name.strip().lower()
+    return DEPT_ALIASES.get(key, name.strip())
+
+
 def strip_html(text: str) -> str:
     """Supprime les balises HTML et normalise les espaces."""
     if not text:
@@ -65,7 +89,7 @@ def clean_event(raw: dict) -> dict | None:
     location_address = (raw.get("location_address") or "").strip()
     location_city    = (raw.get("location_city") or "").strip()
     location_district = (raw.get("location_district") or "").strip()
-    location_dept    = (raw.get("location_department") or "").strip()
+    location_dept    = normalize_dept(raw.get("location_department") or "")
     location_region  = (raw.get("location_region") or "").strip()
     coordinates      = raw.get("location_coordinates")  # dict {lon, lat} ou None
 

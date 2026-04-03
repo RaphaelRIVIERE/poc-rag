@@ -17,7 +17,7 @@ Les tests sont organisés en trois groupes :
 import json
 import pytest
 
-from scripts.clean_events import clean_event, clean_events, strip_html, parse_label_fr, _build_address
+from scripts.clean_events import clean_event, clean_events, strip_html, parse_label_fr, _build_address, normalize_dept
 
 MOCK_RAW_EVENTS = [
     {
@@ -197,5 +197,24 @@ def test_clean_events_filtre_sans_titre():
     """clean_events doit exclure les événements sans titre."""
     events = [{"uid": "x", "title_fr": "", "description_fr": "desc"}]
     assert clean_events(events) == []
+
+
+# ---------------------------------------------------------------------------
+# Fonction normalize_dept
+# ---------------------------------------------------------------------------
+
+def test_normalize_dept():
+    """Les variantes connues sont normalisées ; les inconnues sont retournées telles quelles."""
+    assert normalize_dept("Seine-St-Denis") == "Seine-Saint-Denis"
+    assert normalize_dept("paris") == "Paris"
+    assert normalize_dept("Bretagne") == "Bretagne"
+
+
+def test_clean_event_normalise_dept():
+    """clean_event doit produire un location_dept normalisé."""
+    raw = {**MOCK_RAW_EVENTS[0], "location_department": "Seine-St-Denis"}
+    result = clean_event(raw)
+    assert result is not None
+    assert result["location_dept"] == "Seine-Saint-Denis"
 
 
