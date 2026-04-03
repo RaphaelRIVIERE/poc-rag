@@ -33,6 +33,7 @@ def get_metadata():
 
     events = json.loads(DATA_FILE.read_text(encoding="utf-8"))
     departments = sorted({e.get("location_dept", "") for e in events if e.get("location_dept")})
+    districts = sorted({e.get("location_district", "") for e in events if e.get("location_district")})
 
     last_rebuilt = None
     if INDEX_DIR.exists():
@@ -41,6 +42,7 @@ def get_metadata():
     return MetadataResponse(
         total_events=len(events),
         departments=departments,
+        districts=districts,
         last_rebuilt=last_rebuilt,
     )
 
