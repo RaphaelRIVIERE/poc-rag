@@ -44,14 +44,17 @@ def events_to_documents(events: list[dict]) -> list:
         if not text:
             continue
         metadata = {
-            "uid":           event.get("uid", ""),
-            "title":         event.get("title", ""),
-            "date_begin":    event.get("date_begin", ""),
-            "date_end":      event.get("date_end", ""),
-            "daterange":     event.get("daterange", ""),
-            "location_name": event.get("location_name", ""),
-            "location_city": event.get("location_city", ""),
-            "url":           event.get("url", ""),
+            "uid":             event.get("uid", ""),
+            "title":           event.get("title", ""),
+            "daterange":       event.get("daterange", ""),
+            "location_name":   event.get("location_name", ""),
+            "location_city":   event.get("location_city", ""),
+            "location_dept":   event.get("location_dept", ""),
+            "location_region": event.get("location_region", ""),
+            "conditions":      event.get("conditions", ""),
+            "age_min":         event.get("age_min"),
+            "age_max":         event.get("age_max"),
+            "url":             event.get("url", ""),
         }
         docs.append(Document(page_content=text, metadata=metadata))
     print(f"{len(docs)} documents crees")
