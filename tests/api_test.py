@@ -86,6 +86,54 @@ def test_ask_erreur_serveur_retourne_500():
     assert response.status_code == 500
 
 
+# GET /metadata
+
+def test_metadata_retourne_les_infos():
+    """GET /metadata doit retourner le nombre d'événements, les départements et la date de rebuild."""
+    mock_events = [
+        {"location_dept": "Paris"},
+        {"location_dept": "Yvelines"},
+        {"location_dept": "Paris"},
+    ]
+    with patch("api.routes.DATA_FILE") as mock_data_file, \
+         patch("api.routes.INDEX_DIR") as mock_index_dir, \
+         patch("builtins.open"), \
+         patch("pathlib.Path.read_text", return_value='[]'), \
+         patch("json.loads", return_value=mock_events):
+        mock_data_file.exists.return_value = True
+        mock_index_dir.exists.return_value = True
+        mock_index_dir.stat.return_value.st_mtime = 1743000000.0
+        response = client.get("/metadata")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_events"] == 3
+    assert "Paris" in data["departments"]
+    assert "Yvelines" in data["departments"]
+    assert len(data["departments"]) == 2  # dédoublonné
+
+
+def test_metadata_fichier_absent_retourne_503():
+    """GET /metadata doit retourner 503 si le fichier de données est introuvable."""
+    with patch("api.routes.DATA_FILE") as mock_data_file:
+        mock_data_file.exists.return_value = False
+        response = client.get("/metadata")
+    assert response.status_code == 503
+
+
+def test_metadata_sans_index_retourne_last_rebuilt_none():
+    """GET /metadata doit retourner last_rebuilt à null si l'index n'existe pas encore."""
+    mock_events = [{"location_dept": "Paris"}]
+    with patch("api.routes.DATA_FILE") as mock_data_file, \
+         patch("api.routes.INDEX_DIR") as mock_index_dir, \
+         patch("json.loads", return_value=mock_events):
+        mock_data_file.exists.return_value = True
+        mock_data_file.read_text.return_value = "[]"
+        mock_index_dir.exists.return_value = False
+        response = client.get("/metadata")
+    assert response.status_code == 200
+    assert response.json()["last_rebuilt"] is None
+
+
 # POST /rebuild — cas nominaux
 
 def test_rebuild_succes(valid_auth):
