@@ -30,33 +30,42 @@ MOCK_EVENTS = [
         "uid": "test-001",
         "title": "Concert de jazz",
         "text": "Titre : Concert de jazz | Description : Un concert incroyable | Dates : 15 janvier 2026 | Lieu : Salle Pleyel | Ville : Paris",
-        "date_begin": "2026-01-15T18:00:00+00:00",
-        "date_end": "2026-01-15T21:00:00+00:00",
         "daterange": "15 janvier 2026",
         "location_name": "Salle Pleyel",
         "location_city": "Paris",
+        "location_dept": "Paris",
+        "location_region": "Île-de-France",
+        "conditions": "",
+        "age_min": None,
+        "age_max": None,
         "url": "https://example.com/concert-jazz",
     },
     {
         "uid": "test-002",
         "title": "Exposition art moderne",
         "text": "Titre : Exposition art moderne | Description : Une expo fascinante | Dates : 10 mai - 10 juin 2026 | Lieu : Centre Pompidou | Ville : Paris",
-        "date_begin": "2026-05-10T10:00:00+00:00",
-        "date_end": "2026-06-10T18:00:00+00:00",
         "daterange": "10 mai - 10 juin 2026",
         "location_name": "Centre Pompidou",
         "location_city": "Paris",
+        "location_dept": "Paris",
+        "location_region": "Île-de-France",
+        "conditions": "",
+        "age_min": None,
+        "age_max": None,
         "url": "https://example.com/expo-art",
     },
     {
         "uid": "test-003",
         "title": "Evenement sans texte",
         "text": "",  # doit être ignoré
-        "date_begin": "",
-        "date_end": "",
         "daterange": "",
         "location_name": "",
         "location_city": "",
+        "location_dept": "",
+        "location_region": "",
+        "conditions": "",
+        "age_min": None,
+        "age_max": None,
         "url": "",
     },
 ]
@@ -101,7 +110,7 @@ def test_events_to_documents_metadata_presentes():
     """Tous les champs de métadonnées attendus doivent être présents dans chaque document."""
     docs = events_to_documents(MOCK_EVENTS)
     meta = docs[0].metadata
-    for key in ("uid", "title", "date_begin", "date_end", "location_name", "location_city", "url"):
+    for key in ("uid", "title", "daterange", "location_name", "location_city", "location_dept", "location_region", "url"):
         assert key in meta, f"Métadonnée manquante : {key}"
 
 
