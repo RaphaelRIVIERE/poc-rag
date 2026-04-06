@@ -17,7 +17,7 @@ Les tests sont organisés en trois groupes :
 import json
 import pytest
 
-from scripts.clean_events import clean_event, clean_events, strip_html, parse_label_fr, _build_address
+from scripts.clean_events import clean_event, clean_events, strip_html, parse_label_fr, _build_address, normalize_dept, normalize_district
 
 MOCK_RAW_EVENTS = [
     {
@@ -171,8 +171,26 @@ def test_build_address_sans_doublon_ville():
 
 
 # ---------------------------------------------------------------------------
-# Comportements modifiés de clean_event
+# Fonction clean_events
 # ---------------------------------------------------------------------------
+
+def test_clean_event_normalise_city():
+    """location_city doit être normalisé en title case : majuscules, tirets, espaces superflus."""
+    # Majuscules → title case
+    result = clean_event({**MOCK_RAW_EVENTS[0], "location_city": "PARIS"})
+    assert result is not None
+    assert result["location_city"] == "Paris"
+
+    # Tiret — chaque segment est capitalisé
+    result = clean_event({**MOCK_RAW_EVENTS[0], "location_city": "centre-ville"})
+    assert result is not None
+    assert result["location_city"] == "Centre-Ville"
+
+    # Espaces superflus + tiret composé — .strip().title()
+    result = clean_event({**MOCK_RAW_EVENTS[0], "location_city": "  aix-en-provence  "})
+    assert result is not None
+    assert result["location_city"] == "Aix-En-Provence"
+
 
 def test_clean_event_description_fallback():
     """Si description_fr est vide, le champ 'description' du résultat doit valoir le titre."""
@@ -181,10 +199,6 @@ def test_clean_event_description_fallback():
     assert result is not None
     assert result["description"] == result["title"]
 
-
-# ---------------------------------------------------------------------------
-# Fonction batch clean_events
-# ---------------------------------------------------------------------------
 
 def test_clean_events_deduplique():
     """clean_events doit ignorer les doublons d'uid et ne conserver que la première occurrence."""
@@ -197,5 +211,51 @@ def test_clean_events_filtre_sans_titre():
     """clean_events doit exclure les événements sans titre."""
     events = [{"uid": "x", "title_fr": "", "description_fr": "desc"}]
     assert clean_events(events) == []
+
+
+# ---------------------------------------------------------------------------
+# Fonction normalize_dept
+# ---------------------------------------------------------------------------
+
+def test_normalize_dept():
+    """Les alias connus sont normalisés ; les autres passent par .title()."""
+    assert normalize_dept("Seine-St-Denis") == "Seine-Saint-Denis"
+    assert normalize_dept("Seine-St.-Denis") == "Seine-Saint-Denis"
+    assert normalize_dept("paris") == "Paris"
+    assert normalize_dept("HAUTS-DE-SEINE") == "Hauts-De-Seine"
+    assert normalize_dept("Bretagne") == "Bretagne"
+
+
+def test_clean_event_normalise_dept():
+    """clean_event doit produire un location_dept normalisé."""
+    raw = {**MOCK_RAW_EVENTS[0], "location_department": "Seine-St-Denis"}
+    result = clean_event(raw)
+    assert result is not None
+    assert result["location_dept"] == "Seine-Saint-Denis"
+
+
+# ---------------------------------------------------------------------------
+# normalize_district
+# ---------------------------------------------------------------------------
+
+def test_normalize_district_supprime_prefixe():
+    """Le préfixe 'Quartier' et ses variantes avec article doivent être supprimés."""
+    assert normalize_district("Quartier Saint-Lambert", "") == "Saint-Lambert"
+    assert normalize_district("Quartier de la Sorbonne", "") == "Sorbonne"
+    assert normalize_district("Quartier du Marais", "") == "Marais"
+    assert normalize_district("Quartier des Batignolles", "") == "Batignolles"
+
+
+def test_normalize_district_paris_postalcode():
+    """'Paris' comme district doit être remplacé par l'arrondissement si le code postal est connu."""
+    assert normalize_district("Paris", "75012") == "Paris 12e Arrondissement"
+    assert normalize_district("Paris", "75001") == "Paris 1er Arrondissement"
+    assert normalize_district("Paris", "") == "Paris"
+
+
+def test_normalize_district_centre_ville():
+    """Les variantes de 'Centre-Ville' doivent être normalisées."""
+    assert normalize_district("Centre Ville", "") == "Centre-Ville"
+    assert normalize_district("Centre-ville", "") == "Centre-Ville"
 
 

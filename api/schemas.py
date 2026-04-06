@@ -17,4 +17,5 @@ class RebuildResponse(BaseModel):
 class MetadataResponse(BaseModel):
     total_events: int
     departments: list[str]
+    districts: list[str]
     last_rebuilt: str | None

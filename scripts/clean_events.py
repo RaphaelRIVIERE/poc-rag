@@ -26,6 +26,42 @@ def _build_address(address: str, postalcode: str, city: str) -> str:
     return ", ".join(parts)
 
 
+DEPT_ALIASES: dict[str, str] = {
+    "seine-st-denis":  "Seine-Saint-Denis",
+    "seine-st.-denis": "Seine-Saint-Denis",
+}
+
+
+def normalize_dept(name: str) -> str:
+    """Normalise le nom d'un département vers sa forme canonique."""
+    if not name:
+        return name
+    key = name.strip().lower()
+    return DEPT_ALIASES.get(key, name.strip().title())
+
+
+def normalize_district(district: str, postalcode: str) -> str:
+    """Normalise le nom d'un quartier : supprime le préfixe 'Quartier', déduit
+    l'arrondissement parisien depuis le code postal si le district vaut 'Paris'."""
+    if not district:
+        return district
+
+    # Déduction de l'arrondissement parisien
+    if district == "Paris" and postalcode and postalcode.startswith("750") and len(postalcode) == 5:
+        num = int(postalcode[3:])
+        suffix = "1er" if num == 1 else f"{num}e"
+        return f"Paris {suffix} Arrondissement"
+
+    # Suppression du préfixe "Quartier (de/du/des/d'/de l') "
+    district = re.sub(r"^Quartier\s+(de\s+l[a'\u2019]\s*|du\s+|des\s+|d['\u2019]\s*|de\s+)?", "", district).strip()
+
+    # Normalisation des variantes de "Centre-Ville"
+    if district.lower() in ("centre ville", "centre-ville"):
+        return "Centre-Ville"
+
+    return district
+
+
 def strip_html(text: str) -> str:
     """Supprime les balises HTML et normalise les espaces."""
     if not text:
@@ -48,26 +84,31 @@ def clean_event(raw: dict) -> dict | None:
     if not description:
         description = title  # fallback : utiliser le titre si la description est vide
     long_description = strip_html(raw.get("longdescription_fr") or "")
-    conditions       = (raw.get("conditions_fr") or "").strip()
-    keywords         = raw.get("keywords_fr") or []
+    conditions = (raw.get("conditions_fr") or "").strip()
+    keywords = raw.get("keywords_fr") or []
 
-    daterange  = (raw.get("daterange_fr") or "").strip()
+    daterange = (raw.get("daterange_fr") or "").strip()
+    firstdate_begin = (raw.get("firstdate_begin") or "").strip()
+    lastdate_end    = (raw.get("lastdate_end") or "").strip()
 
     location_postalcode = (raw.get("location_postalcode") or "")
-    age_min          = raw.get("age_min")
-    age_max_raw      = raw.get("age_max")
-    age_max          = None if (age_max_raw is None or age_max_raw >= 99) else age_max_raw
-    accessibility    = raw.get("accessibility_label_fr") or []
-    attendancemode   = parse_label_fr(raw.get("attendancemode"))
-    status           = parse_label_fr(raw.get("status"))
+    age_min = raw.get("age_min")
+    age_max_raw = raw.get("age_max")
+    age_max = None if (age_max_raw is None or age_max_raw >= 99) else age_max_raw
+    accessibility = raw.get("accessibility_label_fr") or []
+    attendancemode = parse_label_fr(raw.get("attendancemode"))
+    status = parse_label_fr(raw.get("status"))
 
-    location_name    = (raw.get("location_name") or "").strip()
+    location_name = (raw.get("location_name") or "").strip()
     location_address = (raw.get("location_address") or "").strip()
-    location_city    = (raw.get("location_city") or "").strip()
-    location_district = (raw.get("location_district") or "").strip()
-    location_dept    = (raw.get("location_department") or "").strip()
-    location_region  = (raw.get("location_region") or "").strip()
-    coordinates      = raw.get("location_coordinates")  # dict {lon, lat} ou None
+    location_city = (raw.get("location_city") or "").strip().title()
+    location_district = normalize_district(
+        (raw.get("location_district") or "").strip(),
+        location_postalcode,
+    )
+    location_dept = normalize_dept(raw.get("location_department") or "")
+    location_region = (raw.get("location_region") or "").strip()
+    coordinates = raw.get("location_coordinates")  # dict {lon, lat} ou None
 
     url = (raw.get("canonicalurl") or "").strip()
 
@@ -102,6 +143,8 @@ def clean_event(raw: dict) -> dict | None:
         "conditions":       conditions,
         "keywords":         keywords,
         "daterange":        daterange,
+        "firstdate_begin":  firstdate_begin,
+        "lastdate_end":     lastdate_end,
         "location_name":    location_name,
         "location_address": location_address,
         "location_city":     location_city,
