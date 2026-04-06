@@ -30,9 +30,12 @@ MOCK_EVENTS = [
         "uid": "test-001",
         "title": "Concert de jazz",
         "text": "Titre : Concert de jazz | Description : Un concert incroyable | Dates : 15 janvier 2026 | Lieu : Salle Pleyel | Ville : Paris",
-        "daterange": "15 janvier 2026",
+        "firstdate_begin": "2026-01-15",
+        "lastdate_end": "2026-01-15",
         "location_name": "Salle Pleyel",
         "location_city": "Paris",
+        "location_district": "",
+        "location_postalcode": "75008",
         "location_dept": "Paris",
         "location_region": "Île-de-France",
         "conditions": "",
@@ -44,9 +47,12 @@ MOCK_EVENTS = [
         "uid": "test-002",
         "title": "Exposition art moderne",
         "text": "Titre : Exposition art moderne | Description : Une expo fascinante | Dates : 10 mai - 10 juin 2026 | Lieu : Centre Pompidou | Ville : Paris",
-        "daterange": "10 mai - 10 juin 2026",
+        "firstdate_begin": "2026-05-10",
+        "lastdate_end": "2026-06-10",
         "location_name": "Centre Pompidou",
         "location_city": "Paris",
+        "location_district": "",
+        "location_postalcode": "75004",
         "location_dept": "Paris",
         "location_region": "Île-de-France",
         "conditions": "",
@@ -58,9 +64,12 @@ MOCK_EVENTS = [
         "uid": "test-003",
         "title": "Evenement sans texte",
         "text": "",  # doit être ignoré
-        "daterange": "",
+        "firstdate_begin": "",
+        "lastdate_end": "",
         "location_name": "",
         "location_city": "",
+        "location_district": "",
+        "location_postalcode": "",
         "location_dept": "",
         "location_region": "",
         "conditions": "",
@@ -110,7 +119,7 @@ def test_events_to_documents_metadata_presentes():
     """Tous les champs de métadonnées attendus doivent être présents dans chaque document."""
     docs = events_to_documents(MOCK_EVENTS)
     meta = docs[0].metadata
-    for key in ("uid", "title", "daterange", "location_name", "location_city", "location_dept", "location_region", "url"):
+    for key in ("uid", "title", "firstdate_begin", "lastdate_end", "location_name", "location_city", "location_district", "location_postalcode", "location_dept", "location_region", "url"):
         assert key in meta, f"Métadonnée manquante : {key}"
 
 
