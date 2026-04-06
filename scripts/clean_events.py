@@ -27,18 +27,8 @@ def _build_address(address: str, postalcode: str, city: str) -> str:
 
 
 DEPT_ALIASES: dict[str, str] = {
-    "paris": "Paris",
-    "seine-et-marne": "Seine-et-Marne",
-    "yvelines": "Yvelines",
-    "essonne": "Essonne",
-    "hauts-de-seine": "Hauts-de-Seine",
-    "seine-saint-denis": "Seine-Saint-Denis",
-    "seine-st-denis": "Seine-Saint-Denis",
+    "seine-st-denis":  "Seine-Saint-Denis",
     "seine-st.-denis": "Seine-Saint-Denis",
-    "val-de-marne": "Val-de-Marne",
-    "val-de-marne": "Val-de-Marne",
-    "val-d'oise": "Val-d'Oise",
-    "val-d'oise": "Val-d'Oise",
 }
 
 
@@ -47,7 +37,7 @@ def normalize_dept(name: str) -> str:
     if not name:
         return name
     key = name.strip().lower()
-    return DEPT_ALIASES.get(key, name.strip())
+    return DEPT_ALIASES.get(key, name.strip().title())
 
 
 def normalize_district(district: str, postalcode: str) -> str:
