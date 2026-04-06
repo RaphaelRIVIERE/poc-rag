@@ -218,9 +218,11 @@ def test_clean_events_filtre_sans_titre():
 # ---------------------------------------------------------------------------
 
 def test_normalize_dept():
-    """Les variantes connues sont normalisées ; les inconnues sont retournées telles quelles."""
+    """Les alias connus sont normalisés ; les autres passent par .title()."""
     assert normalize_dept("Seine-St-Denis") == "Seine-Saint-Denis"
+    assert normalize_dept("Seine-St.-Denis") == "Seine-Saint-Denis"
     assert normalize_dept("paris") == "Paris"
+    assert normalize_dept("HAUTS-DE-SEINE") == "Hauts-De-Seine"
     assert normalize_dept("Bretagne") == "Bretagne"
 
 
