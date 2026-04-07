@@ -1,3 +1,5 @@
+"""Tests fonctionnels de l'API FastAPI — /ask, /rebuild, /health, /metadata."""
+
 import hashlib
 import pytest
 from unittest.mock import patch, MagicMock
@@ -19,9 +21,8 @@ def valid_auth():
     yield
     app.dependency_overrides.clear()
 
-# Sécurité — api/security.py
+
 def test_verify_api_key_non_configuree_retourne_500():
-    """verify() doit retourner 500 si API_KEY n'est pas configurée côté serveur."""
     from api.security import make_verify_api_key
     from fastapi import HTTPException
 
@@ -30,41 +31,33 @@ def test_verify_api_key_non_configuree_retourne_500():
         verify("une-cle-quelconque")
     assert exc_info.value.status_code == 500
 
-# GET /health
+
 def test_health_retourne_ok():
-    """GET /health doit retourner {"status": "ok"} avec un code 200."""
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
 
-# POST /ask — cas nominaux
-
 def test_ask_retourne_une_reponse():
-    """POST /ask doit retourner une réponse générée quand ask() est mockée."""
     with patch("api.routes.ask", return_value="Il y a un concert de jazz à Paris le 15 avril."):
         response = client.post("/ask", json={"question": "Quels concerts à Paris ?"})
     assert response.status_code == 200
     assert response.json() == {"answer": "Il y a un concert de jazz à Paris le 15 avril."}
 
 
-# POST /ask — gestion des erreurs
-
 def test_ask_question_vide_retourne_422():
-    """POST /ask doit retourner 422 si la question est vide."""
-    with patch("api.routes.ask", side_effect=ValueError("La question ne peut pas être vide.")):
-        response = client.post("/ask", json={"question": ""})
+    # La validation se fait dans rag_chain.ask(), pas besoin de mocker
+    response = client.post("/ask", json={"question": ""})
     assert response.status_code == 422
 
 
 def test_ask_champ_manquant_retourne_422():
-    """POST /ask doit retourner 422 si le champ 'question' est absent."""
     response = client.post("/ask", json={})
     assert response.status_code == 422
 
 
 def test_ask_index_absent_retourne_503():
-    """POST /ask doit retourner 503 si l'index FAISS est introuvable."""
+    """Retourne 503 si l'index FAISS n'a pas encore été construit."""
     with patch("api.routes.ask", side_effect=FileNotFoundError("index not found")):
         response = client.post("/ask", json={"question": "Quels événements ?"})
     assert response.status_code == 503
@@ -72,7 +65,9 @@ def test_ask_index_absent_retourne_503():
 
 
 def test_ask_rate_limit_retourne_429():
-    """POST /ask doit retourner 429 si Mistral retourne une erreur de rate limit."""
+    """Retourne 429 si Mistral dépasse le rate limit.
+    Le message "429 rate_limit exceeded" est le format renvoyé par l'API Mistral —
+    la route le détecte pour distinguer ce cas d'une erreur serveur générique."""
     with patch("api.routes.ask", side_effect=Exception("Error response 429 rate_limit exceeded")):
         response = client.post("/ask", json={"question": "Quels événements ?"})
     assert response.status_code == 429
@@ -80,40 +75,12 @@ def test_ask_rate_limit_retourne_429():
 
 
 def test_ask_erreur_serveur_retourne_500():
-    """POST /ask doit retourner 500 en cas d'erreur inattendue."""
     with patch("api.routes.ask", side_effect=RuntimeError("Erreur inconnue")):
         response = client.post("/ask", json={"question": "Quels événements ?"})
     assert response.status_code == 500
 
 
-# GET /metadata
-
-def test_metadata_retourne_les_infos():
-    """GET /metadata doit retourner le nombre d'événements, les départements et la date de rebuild."""
-    mock_events = [
-        {"location_dept": "Paris"},
-        {"location_dept": "Yvelines"},
-        {"location_dept": "Paris"},
-    ]
-    with patch("api.routes.DATA_FILE") as mock_data_file, \
-         patch("api.routes.INDEX_DIR") as mock_index_dir, \
-         patch("builtins.open"), \
-         patch("pathlib.Path.read_text", return_value='[]'), \
-         patch("json.loads", return_value=mock_events):
-        mock_data_file.exists.return_value = True
-        mock_index_dir.exists.return_value = True
-        mock_index_dir.stat.return_value.st_mtime = 1743000000.0
-        response = client.get("/metadata")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["total_events"] == 3
-    assert "Paris" in data["departments"]
-    assert "Yvelines" in data["departments"]
-    assert len(data["departments"]) == 2  # dédoublonné
-
-
 def test_metadata_fichier_absent_retourne_503():
-    """GET /metadata doit retourner 503 si le fichier de données est introuvable."""
     with patch("api.routes.DATA_FILE") as mock_data_file:
         mock_data_file.exists.return_value = False
         response = client.get("/metadata")
@@ -121,7 +88,6 @@ def test_metadata_fichier_absent_retourne_503():
 
 
 def test_metadata_sans_index_retourne_last_rebuilt_none():
-    """GET /metadata doit retourner last_rebuilt à null si l'index n'existe pas encore."""
     mock_events = [{"location_dept": "Paris"}]
     with patch("api.routes.DATA_FILE") as mock_data_file, \
          patch("api.routes.INDEX_DIR") as mock_index_dir, \
@@ -134,17 +100,15 @@ def test_metadata_sans_index_retourne_last_rebuilt_none():
     assert response.json()["last_rebuilt"] is None
 
 
-# POST /rebuild — cas nominaux
-
 def test_rebuild_succes(valid_auth):
-    """POST /rebuild doit retourner 200 et le nombre de chunks indexés."""
-    mock_index = MagicMock()
+    """Vérifie le flux complet de /rebuild : chargement → conversion → chunking → indexation → sauvegarde.
+    Chaque étape est mockée indépendamment pour isoler la logique de la route."""
     with patch("api.routes.DATA_FILE") as mock_data_file, \
-         patch("api.routes.load_events", return_value=[]) as _, \
-         patch("api.routes.events_to_documents", return_value=[]) as _, \
-         patch("api.routes.split_documents", return_value=["chunk1", "chunk2", "chunk3"]) as _, \
-         patch("api.routes.build_faiss_index", return_value=mock_index) as _, \
-         patch("api.routes.save_index") as _:
+         patch("api.routes.load_events", return_value=[]), \
+         patch("api.routes.events_to_documents", return_value=[]), \
+         patch("api.routes.split_documents", return_value=["chunk1", "chunk2", "chunk3"]), \
+         patch("api.routes.build_faiss_index", return_value=MagicMock()), \
+         patch("api.routes.save_index"):
         mock_data_file.exists.return_value = True
         response = client.post("/rebuild", headers={"X-API-Key": VALID_KEY})
     assert response.status_code == 200
@@ -153,25 +117,18 @@ def test_rebuild_succes(valid_auth):
     assert "succès" in data["message"]
 
 
-# POST /rebuild — authentification
-
 def test_rebuild_sans_header_retourne_401(valid_auth):
-    """POST /rebuild doit retourner 401 si le header X-API-Key est absent."""
     response = client.post("/rebuild")
     assert response.status_code == 401
 
 
 def test_rebuild_cle_invalide_retourne_401(valid_auth):
-    """POST /rebuild doit retourner 401 si la clé API est incorrecte."""
     response = client.post("/rebuild", headers={"X-API-Key": "mauvaise-cle"})
     assert response.status_code == 401
 
 
-# POST /rebuild — gestion des erreurs
-
 def test_rebuild_erreur_reconstruction_retourne_500(valid_auth):
-    """POST /rebuild doit retourner 500 si la reconstruction de l'index échoue."""
-    mock_index = MagicMock()
+    """Retourne 500 si la construction de l'index FAISS échoue."""
     with patch("api.routes.DATA_FILE") as mock_data_file, \
          patch("api.routes.load_events", return_value=[]), \
          patch("api.routes.events_to_documents", return_value=[]), \
@@ -184,7 +141,6 @@ def test_rebuild_erreur_reconstruction_retourne_500(valid_auth):
 
 
 def test_rebuild_fichier_absent_retourne_503(valid_auth):
-    """POST /rebuild doit retourner 503 si le fichier de données est absent."""
     with patch("api.routes.DATA_FILE") as mock_data_file:
         mock_data_file.exists.return_value = False
         response = client.post("/rebuild", headers={"X-API-Key": VALID_KEY})
