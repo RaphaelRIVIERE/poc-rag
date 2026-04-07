@@ -116,6 +116,22 @@ uvicorn api.main:app --reload
 
 L'API est accessible sur `http://localhost:8000`. La documentation interactive Swagger est disponible sur `http://localhost:8000/docs`.
 
+### Lancer l'API avec Docker
+
+```bash
+# Builder l'image
+docker build -t puls-events-rag .
+
+# Lancer le conteneur
+docker run -p 8000:8000 \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/index:/app/index \
+  --env-file .env \
+  puls-events-rag
+```
+
+> Prérequis : les données et l'index doivent être générés en local avant de lancer le conteneur (étapes 1 à 3 ci-dessus).
+
 ### Utiliser l'API
 
 ```bash
