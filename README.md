@@ -166,13 +166,13 @@ pytest tests/
 ### Mesurer la couverture des tests
 
 ```bash
-pytest tests/ --cov=scripts --cov-report=term-missing
+pytest tests/ --cov=scripts --cov=api --cov-report=term-missing
 ```
 
 Affiche la couverture ligne par ligne pour chaque script. Pour générer un rapport HTML :
 
 ```bash
-pytest tests/ --cov=scripts --cov-report=html
+pytest tests/ --cov=scripts --cov=api --cov-report=html
 # Ouvrir htmlcov/index.html dans un navigateur
 ```
 
