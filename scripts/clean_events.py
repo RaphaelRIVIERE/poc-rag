@@ -16,13 +16,15 @@ def parse_label_fr(value: str | None) -> str:
         return ""
 
 
-def _build_address(address: str, postalcode: str, city: str) -> str:
+def _build_address(address: str, postalcode: str, city: str, dept: str = "") -> str:
     """Construit une adresse complète sans doublons (comparaison insensible à la casse)."""
     parts = [address]
     if postalcode and postalcode not in address:
         parts.append(postalcode)
     if city and city.lower() not in address.lower():
         parts.append(city)
+    if dept and dept.lower() not in address.lower():
+        parts.append(dept)
     return ", ".join(parts)
 
 
@@ -121,17 +123,13 @@ def clean_event(raw: dict) -> dict | None:
         f"Conditions : {conditions}" if conditions else "",
         f"Dates : {daterange}" if daterange else "",
         f"Lieu : {location_name}" if location_name else "",
-        f"Adresse : {_build_address(location_address, location_postalcode, location_city)}" if location_address else "",
+        f"Adresse : {_build_address(location_address, location_postalcode, location_city, location_dept)}" if location_address else "",
         f"Quartier : {location_district}" if location_district else "",
-        f"Département : {location_dept}" if location_dept else "",
-        f"Région : {location_region}" if location_region else "",
         f"Âge : {age_min}-{age_max} ans" if age_min is not None and age_max is not None
         else f"Âge : à partir de {age_min} ans" if age_min is not None
         else f"Âge : jusqu'à {age_max} ans" if age_max is not None
         else "",
         f"Accessibilité : {', '.join(accessibility)}" if accessibility else "",
-        f"Mode : {attendancemode}" if attendancemode else "",
-        f"Statut : {status}" if status else "",
     ]
     text = " | ".join(p for p in parts if p)
 

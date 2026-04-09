@@ -7,6 +7,7 @@ Utilisation :
 """
 
 import os
+from datetime import date
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -21,16 +22,22 @@ from langchain_core.runnables import RunnablePassthrough
 load_dotenv()
 
 INDEX_DIR = Path(__file__).parent.parent / "index" / "faiss_index"
+RETRIEVER_K = 5
 
-PROMPT_TEMPLATE = PromptTemplate.from_template(
-    """Tu es un assistant spécialisé dans les événements culturels.
+def _build_prompt_template() -> PromptTemplate:
+    today = date.today().strftime("%A %d %B %Y")
+    return PromptTemplate.from_template(
+        f"""Tu es un assistant spécialisé dans les événements culturels en Île-de-France.
+Ce système couvre uniquement les événements culturels en Île-de-France.
+La date d'aujourd'hui est le {today}.
+Si la question porte sur une région hors Île-de-France, indique clairement que la base est limitée à l'Île-de-France et qu'aucun événement hors de cette région n'est disponible.
 Réponds à la question en t'appuyant uniquement sur les événements fournis ci-dessous.
-Si aucun événement ne correspond, dis-le clairement.
+Si aucun événement ne correspond, dis-le clairement sans proposer de sources externes.
 
 Événements pertinents :
-{context}
+{{context}}
 
-Question : {question}
+Question : {{question}}
 
 Réponse :"""
 )
@@ -44,8 +51,8 @@ def load_index() -> FAISS:
     )
 
 
-def build_chain(index: FAISS):
-    retriever = index.as_retriever(search_kwargs={"k": 5})
+def build_chain(index: FAISS, k: int = RETRIEVER_K):
+    retriever = index.as_retriever(search_kwargs={"k": k})
 
     llm = ChatMistralAI(
         model="mistral-small-latest",
@@ -58,7 +65,7 @@ def build_chain(index: FAISS):
 
     chain = (
         {"context": retriever | format_docs, "question": RunnablePassthrough()}
-        | PROMPT_TEMPLATE
+        | _build_prompt_template()
         | llm
         | StrOutputParser()
     )
