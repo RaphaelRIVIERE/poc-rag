@@ -16,62 +16,47 @@
   },
   {
     "id": 4,
-    "question": "Quels événements musicaux se déroulent à Versailles ?",
-    "expected_answer": "Plusieurs événements musicaux sont proposés à Versailles dans différents styles et lieux culturels."
-  },
-  {
-    "id": 5,
     "question": "Y a-t-il des visites guidées en Île-de-France ?",
     "expected_answer": "Oui, plusieurs visites guidées sont proposées en Île-de-France, notamment des visites de sites patrimoniaux et de jardins, certaines à entrée libre."
   },
   {
-    "id": 6,
+    "id": 5,
     "question": "Y a-t-il des concerts ou spectacles musicaux avec entrée libre en Île-de-France ?",
-    "expected_answer": "Oui, plusieurs concerts et spectacles musicaux en entrée libre sont proposés dans différentes communes d’Île-de-France."
+    "expected_answer": "Oui, plusieurs concerts et spectacles musicaux en entrée libre sont proposés dans différentes communes d'Île-de-France."
   },
   {
-    "id": 7,
+    "id": 6,
     "question": "Y a-t-il des événements pour les enfants ou les familles en Île-de-France ?",
     "expected_answer": "Oui, des événements familiaux sont proposés en Île-de-France, comme des spectacles pour enfants et des visites-ateliers adaptées aux familles."
   },
   {
-    "id": 8,
+    "id": 7,
     "question": "Quels concerts de musique classique ou orchestrale sont prévus en Île-de-France ?",
     "expected_answer": "Plusieurs concerts de musique classique ou orchestrale sont proposés en Île-de-France dans différents formats et lieux culturels."
   },
   {
-    "id": 9,
-    "question": "Y a-t-il des événements liés à la gastronomie ou à l'alimentation en Île-de-France ?",
-    "expected_answer": "Oui, des événements autour de la gastronomie et de l'alimentation sont prévus en Île-de-France, à Paris et dans d'autres communes de la région."
-  },
-  {
-    "id": 10,
-    "question": "Quels événements se déroulent dans les Yvelines ?",
-    "expected_answer": "Plusieurs événements culturels sont proposés dans les Yvelines, notamment des concerts, des visites et d'autres activités culturelles."
-  },
-  {
-    "id": 11,
+    "id": 8,
     "question": "Y a-t-il des événements dans les jardins ou espaces naturels en Île-de-France ?",
     "expected_answer": "Oui, plusieurs événements sont proposés dans des jardins et espaces naturels en Île-de-France, dont certaines visites à entrée libre."
   },
   {
-    "id": 12,
+    "id": 9,
+    "question": "Y a-t-il des événements culturels dans les Yvelines ?",
+    "expected_answer": "Oui, des événements culturels sont proposés dans les Yvelines, comme des concerts, des visites ou d'autres activités culturelles selon la programmation disponible."
+  },
+  {
+    "id": 10,
     "question": "Y a-t-il des événements culturels en Seine-et-Marne ?",
     "expected_answer": "Oui, des événements culturels sont proposés en Seine-et-Marne dans différents domaines comme les visites, ateliers ou activités thématiques."
   },
   {
-    "id": 13,
+    "id": 11,
     "question": "Y a-t-il des événements culturels à Lyon ou Marseille ?",
     "expected_answer": "Aucun événement à Lyon ou Marseille n'est disponible dans le système. La base de données couvre uniquement les événements en Île-de-France."
   },
   {
-    "id": 14,
-    "question": "Y a-t-il des concerts de rap ou de hip-hop en Île-de-France ?",
-    "expected_answer": "Aucun concert de rap ou hip-hop n'est référencé dans les événements disponibles pour l'Île-de-France."
-  },
-  {
-    "id": 15,
+    "id": 12,
     "question": "Que faire ce week-end en Île-de-France ?",
-    "expected_answer": "La question ne précise pas quel week-end est concerné. Pour proposer des suggestions pertinentes, il faudrait indiquer une date ou des préférences d’activités."
+    "expected_answer": "Voici des événements culturels disponibles en Île-de-France pour ce week-end. Le système propose des événements basés sur la programmation indexée."
   }
 ]

@@ -19,7 +19,7 @@ index/
 *.faiss
 
 # Evaluation results
-results/
+# results/
 
 # Tests & coverage
 .coverage

@@ -1,23 +1,16 @@
-"""
-evaluate_rag.py — Évaluation automatique du système RAG avec Ragas.
-
-Métriques calculées :
-  - answer_relevancy   : la réponse répond-elle bien à la question ?
-  - faithfulness       : la réponse est-elle fidèle aux documents récupérés ?
-  - context_precision  : le contexte récupéré contient-il peu de bruit ?
-  - context_recall     : toutes les infos nécessaires ont-elles été récupérées ?
-
-Utilisation :
-    python tests/evaluate_rag.py
-    python tests/evaluate_rag.py --output results/eval_results.json
-"""
-
 import sys
 import json
 import argparse
 import time
 from pathlib import Path
 from datetime import datetime
+
+THRESHOLDS = {
+    "answer_relevancy":  0.70,
+    "faithfulness":      0.65,
+    "context_precision": 0.45,
+    "context_recall":    0.70,
+}
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -81,18 +74,26 @@ def collect_answers(annotations: list[dict]) -> list[dict]:
             "contexts": contexts,
             "ground_truth": item["expected_answer"],
         })
+        if i < len(annotations):
+            time.sleep(3)
     return rows
 
 
-def print_summary(result) -> None:
+def print_summary(result) -> dict[str, float]:
+    """Affiche le résumé et retourne les moyennes par métrique."""
     print("\n" + "=" * 60)
     print("RÉSULTATS D'ÉVALUATION RAG (Ragas)")
     print("=" * 60)
     df = result.to_pandas()
+    averages = {}
     for metric in ["answer_relevancy", "faithfulness", "context_precision", "context_recall"]:
         if metric in df.columns:
             avg = df[metric].mean()
-            print(f"  {metric:<25} : {avg:.3f}")
+            averages[metric] = avg
+            threshold = THRESHOLDS.get(metric)
+            status = "✓" if threshold is None or avg >= threshold else "✗"
+            threshold_str = f"  (seuil : {threshold:.2f})" if threshold is not None else ""
+            print(f"  {status} {metric:<25} : {avg:.3f}{threshold_str}")
     print("=" * 60)
     print("\nDétail par question :")
     for i, row in enumerate(df.itertuples(), 1):
@@ -103,24 +104,43 @@ def print_summary(result) -> None:
         )
         print(f"  Q{i:02d} → {scores}")
     print("=" * 60)
+    return averages
+
+
+def check_thresholds(averages: dict[str, float]) -> bool:
+    """Retourne True si tous les seuils sont atteints, False sinon."""
+    failures = [
+        f"  {metric} = {averages[metric]:.3f} < {threshold:.2f}"
+        for metric, threshold in THRESHOLDS.items()
+        if metric in averages and averages[metric] < threshold
+    ]
+    if failures:
+        print("\n⚠ Seuils non atteints :")
+        for f in failures:
+            print(f)
+        return False
+    print("\n✓ Tous les seuils sont atteints.")
+    return True
 
 
 def save_results(result, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    now = datetime.now()
     df = result.to_pandas()
     report = {
-        "evaluated_at": datetime.now().isoformat(),
+        "evaluated_at": now.isoformat(),
         "results": df.to_dict(orient="records"),
     }
-    with open(output_path, "w", encoding="utf-8") as f:
+    timestamped_path = output_path.parent / f"eval_{now.strftime('%Y-%m-%d_%H%M%S')}.json"
+    with open(timestamped_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
-    print(f"\nRésultats sauvegardés dans : {output_path}")
+    print(f"Résultats sauvegardés dans : {timestamped_path}")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Évaluation automatique du système RAG")
-    parser.add_argument("--output", type=str, default=None,
-                        help="Chemin de sauvegarde des résultats JSON")
+    parser.add_argument("--output-dir", type=str, default="results",
+                        help="Dossier de sauvegarde des résultats (défaut : results/)")
     args = parser.parse_args()
 
     print("Chargement des annotations...")
@@ -152,11 +172,13 @@ def main():
     t_evaluation = time.time() - t0
     print(f"  Terminé en {fmt_duration(t_evaluation)}")
 
-    print_summary(result)
+    averages = print_summary(result)
     print(f"\nTemps total : {fmt_duration(time.time() - t_start)}")
 
-    if args.output:
-        save_results(result, Path(args.output))
+    save_results(result, Path(args.output_dir) / "eval.json")
+
+    if not check_thresholds(averages):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -4,8 +4,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 BASE_URL = (
-    "https://public.opendatasoft.com/api/explore/v2.1"
-    "/catalog/datasets/evenements-publics-openagenda/records"
+    "https://public.opendatasoft.com/api/explore/v2.1/catalog/datasets/evenements-publics-openagenda/records"
 )
 
 LOCATION_FILTER = "location_region='Île-de-France'"
