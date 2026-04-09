@@ -1,13 +1,3 @@
-"""
-build_index.py — Vectorisation des événements et construction de l'index FAISS.
-
-Étapes :
-  1. Charger data/clean_events.json
-  2. Découper les textes en chunks (RecursiveCharacterTextSplitter)
-  3. Générer les embeddings via Mistral AI
-  4. Construire et sauvegarder l'index FAISS dans index/faiss_index
-"""
-
 import json
 import os
 import time
@@ -23,6 +13,9 @@ load_dotenv()
 
 DATA_FILE  = Path(__file__).parent.parent / "data" / "clean_events.json"
 INDEX_DIR  = Path(__file__).parent.parent / "index" / "faiss_index"
+
+CHUNK_SIZE    = 700
+CHUNK_OVERLAP = 50
 
 
 def load_events(path: Path) -> list[dict]:
@@ -64,10 +57,10 @@ def events_to_documents(events: list[dict]) -> list:
     return docs
 
 
-def split_documents(docs: list) -> list:
+def split_documents(docs: list, chunk_size: int = CHUNK_SIZE, chunk_overlap: int = CHUNK_OVERLAP) -> list:
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,
-        chunk_overlap=50,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
         separators=[" | ", "\n\n", "\n", " ", ""],
     )
     chunks = splitter.split_documents(docs)

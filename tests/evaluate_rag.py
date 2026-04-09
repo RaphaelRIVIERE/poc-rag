@@ -1,17 +1,3 @@
-"""
-evaluate_rag.py — Évaluation automatique du système RAG avec Ragas.
-
-Métriques calculées :
-  - answer_relevancy   : la réponse répond-elle bien à la question ?
-  - faithfulness       : la réponse est-elle fidèle aux documents récupérés ?
-  - context_precision  : le contexte récupéré contient-il peu de bruit ?
-  - context_recall     : toutes les infos nécessaires ont-elles été récupérées ?
-
-Utilisation :
-    python tests/evaluate_rag.py
-    python tests/evaluate_rag.py --output results/eval_results.json
-"""
-
 import sys
 import json
 import argparse
@@ -81,6 +67,8 @@ def collect_answers(annotations: list[dict]) -> list[dict]:
             "contexts": contexts,
             "ground_truth": item["expected_answer"],
         })
+        if i < len(annotations):
+            time.sleep(3)
     return rows
 
 
@@ -107,20 +95,22 @@ def print_summary(result) -> None:
 
 def save_results(result, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    now = datetime.now()
     df = result.to_pandas()
     report = {
-        "evaluated_at": datetime.now().isoformat(),
+        "evaluated_at": now.isoformat(),
         "results": df.to_dict(orient="records"),
     }
-    with open(output_path, "w", encoding="utf-8") as f:
+    timestamped_path = output_path.parent / f"eval_{now.strftime('%Y-%m-%d_%H%M%S')}.json"
+    with open(timestamped_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
-    print(f"\nRésultats sauvegardés dans : {output_path}")
+    print(f"Résultats sauvegardés dans : {timestamped_path}")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Évaluation automatique du système RAG")
-    parser.add_argument("--output", type=str, default=None,
-                        help="Chemin de sauvegarde des résultats JSON")
+    parser.add_argument("--output-dir", type=str, default="results",
+                        help="Dossier de sauvegarde des résultats (défaut : results/)")
     args = parser.parse_args()
 
     print("Chargement des annotations...")
@@ -155,8 +145,7 @@ def main():
     print_summary(result)
     print(f"\nTemps total : {fmt_duration(time.time() - t_start)}")
 
-    if args.output:
-        save_results(result, Path(args.output))
+    save_results(result, Path(args.output_dir) / "eval.json")
 
 
 if __name__ == "__main__":
