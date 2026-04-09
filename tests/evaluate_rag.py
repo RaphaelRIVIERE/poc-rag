@@ -5,6 +5,13 @@ import time
 from pathlib import Path
 from datetime import datetime
 
+THRESHOLDS = {
+    "answer_relevancy":  0.70,
+    "faithfulness":      0.65,
+    "context_precision": 0.45,
+    "context_recall":    0.70,
+}
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from dotenv import load_dotenv
@@ -72,15 +79,21 @@ def collect_answers(annotations: list[dict]) -> list[dict]:
     return rows
 
 
-def print_summary(result) -> None:
+def print_summary(result) -> dict[str, float]:
+    """Affiche le résumé et retourne les moyennes par métrique."""
     print("\n" + "=" * 60)
     print("RÉSULTATS D'ÉVALUATION RAG (Ragas)")
     print("=" * 60)
     df = result.to_pandas()
+    averages = {}
     for metric in ["answer_relevancy", "faithfulness", "context_precision", "context_recall"]:
         if metric in df.columns:
             avg = df[metric].mean()
-            print(f"  {metric:<25} : {avg:.3f}")
+            averages[metric] = avg
+            threshold = THRESHOLDS.get(metric)
+            status = "✓" if threshold is None or avg >= threshold else "✗"
+            threshold_str = f"  (seuil : {threshold:.2f})" if threshold is not None else ""
+            print(f"  {status} {metric:<25} : {avg:.3f}{threshold_str}")
     print("=" * 60)
     print("\nDétail par question :")
     for i, row in enumerate(df.itertuples(), 1):
@@ -91,6 +104,23 @@ def print_summary(result) -> None:
         )
         print(f"  Q{i:02d} → {scores}")
     print("=" * 60)
+    return averages
+
+
+def check_thresholds(averages: dict[str, float]) -> bool:
+    """Retourne True si tous les seuils sont atteints, False sinon."""
+    failures = [
+        f"  {metric} = {averages[metric]:.3f} < {threshold:.2f}"
+        for metric, threshold in THRESHOLDS.items()
+        if metric in averages and averages[metric] < threshold
+    ]
+    if failures:
+        print("\n⚠ Seuils non atteints :")
+        for f in failures:
+            print(f)
+        return False
+    print("\n✓ Tous les seuils sont atteints.")
+    return True
 
 
 def save_results(result, output_path: Path) -> None:
@@ -142,10 +172,13 @@ def main():
     t_evaluation = time.time() - t0
     print(f"  Terminé en {fmt_duration(t_evaluation)}")
 
-    print_summary(result)
+    averages = print_summary(result)
     print(f"\nTemps total : {fmt_duration(time.time() - t_start)}")
 
     save_results(result, Path(args.output_dir) / "eval.json")
+
+    if not check_thresholds(averages):
+        sys.exit(1)
 
 
 if __name__ == "__main__":
