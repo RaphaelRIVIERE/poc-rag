@@ -1,0 +1,130 @@
+{
+  "info": {
+    "name": "Puls-Events RAG",
+    "description": "Collection de démo — scénario soutenance. Variable requise : BASE_URL (ex: http://localhost:8000)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "BASE_URL",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "API_KEY",
+      "value": "votre_cle_api_ici",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{BASE_URL}}/health",
+          "host": ["{{BASE_URL}}"],
+          "path": ["health"]
+        }
+      }
+    },
+    {
+      "name": "Metadata",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{BASE_URL}}/metadata",
+          "host": ["{{BASE_URL}}"],
+          "path": ["metadata"]
+        },
+        "description": "Infos sur l'index : nombre d'événements, période couverte, dernière reconstruction."
+      }
+    },
+    {
+      "name": "Ask — question nominale",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"question\": \"Quels concerts gratuits ont lieu en Île-de-France ?\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{BASE_URL}}/ask",
+          "host": ["{{BASE_URL}}"],
+          "path": ["ask"]
+        }
+      }
+    },
+    {
+      "name": "Ask — hors périmètre",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"question\": \"Quels événements ont lieu à Lyon ou Marseille ?\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{BASE_URL}}/ask",
+          "host": ["{{BASE_URL}}"],
+          "path": ["ask"]
+        },
+        "description": "Hors périmètre géographique — le modèle doit indiquer qu'il n'a pas d'événements correspondants."
+      }
+    },
+    {
+      "name": "Rebuild — sans auth",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{BASE_URL}}/rebuild",
+          "host": ["{{BASE_URL}}"],
+          "path": ["rebuild"]
+        },
+        "description": "Doit retourner 401."
+      }
+    },
+    {
+      "name": "Rebuild — avec auth",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{API_KEY}}"
+          }
+        ],
+        "url": {
+          "raw": "{{BASE_URL}}/rebuild",
+          "host": ["{{BASE_URL}}"],
+          "path": ["rebuild"]
+        },
+        "description": "Reconstruit l'index FAISS. Prend ~30s (génération des embeddings)."
+      }
+    }
+  ]
+}
