@@ -67,7 +67,21 @@ def collect_answers(annotations: list[dict]) -> list[dict]:
         print(f"  [{i}/{len(annotations)}] {item['question'][:60]}...")
         docs = retriever.invoke(item["question"])
         contexts = [doc.page_content for doc in docs]
-        answer = chain.invoke(item["question"])
+
+        # retry si l'API est surchargée
+        answer = ""
+        for attempt in range(5):
+            try:
+                answer = chain.invoke(item["question"])
+                break
+            except Exception as e:
+                if "429" in str(e) and attempt < 4:
+                    wait = 30 * (attempt + 1)
+                    print(f"    Rate limit, attente {wait}s...")
+                    time.sleep(wait)
+                else:
+                    raise
+
         rows.append({
             "question": item["question"],
             "answer": answer,
@@ -75,7 +89,7 @@ def collect_answers(annotations: list[dict]) -> list[dict]:
             "ground_truth": item["expected_answer"],
         })
         if i < len(annotations):
-            time.sleep(3)
+            time.sleep(5)
     return rows
 
 
