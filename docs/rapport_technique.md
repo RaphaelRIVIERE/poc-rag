@@ -5,8 +5,6 @@
 **Date :** Avril 2026  
 **Version :** 0.1.0
 
----
-
 ## Table des matières
 
 1. [Objectifs du projet](#1-objectifs-du-projet)
@@ -19,8 +17,6 @@
 8. [Recommandations et perspectives](#8-recommandations-et-perspectives)
 9. [Organisation du dépôt GitHub](#9-organisation-du-dépôt-github)
 10. [Annexes](#10-annexes)
-
----
 
 ## 1. Objectifs du projet
 
@@ -56,8 +52,6 @@ Démontrer la **faisabilité technique et la valeur métier** d'un assistant de 
 | Volume d'événements | jusqu'à 1 000 événements |
 | Langue | Français |
 
----
-
 ## 2. Architecture du système
 
 ### Schéma global
@@ -65,27 +59,31 @@ Démontrer la **faisabilité technique et la valeur métier** d'un assistant de 
 ```mermaid
 flowchart TD
     subgraph INGESTION["🗂️ Pipeline de données (indexation)"]
-        A["API OpenAgenda\n(OpenDataSoft)"]
+        A["API OpenAgenda"]
         B["fetch_events.py"]
-        C["raw_events.json"]
-        D["clean_events.py\n(nettoyage HTML, normalisation)"]
-        E["clean_events.json"]
+        C[/"raw_events.json"/]
+        D["clean_events.py"]
+        E[/"clean_events.json"/]
         F["build_index.py"]
-        G["Chunking\nRecursiveCharacterTextSplitter\nchunk_size=500, overlap=50"]
-        H["Mistral Embeddings\nmistral-embed · 1024 dims"]
-        I[("Index FAISS\nindex/faiss_index/")]
+        subgraph LC1["LangChain"]
+            G["Chunking"]
+            H["Embedding (Mistral)"]
+        end
+        I[("Index FAISS")]
 
         A --> B --> C --> D --> E --> F --> G --> H --> I
     end
 
     subgraph RAG["🤖 Pipeline RAG (requête)"]
         J["Question utilisateur"]
-        K["Embedding de la question\nmistral-embed"]
-        L["Recherche FAISS\nTop-5 chunks pertinents"]
-        M["Prompt augmenté\ncontexte + question"]
-        N["Mistral LLM\nmistral-small-latest · T=0.2"]
+        subgraph LC2["LangChain"]
+            K["Embedding de la question"]
+            L["Recherche FAISS\n(top-5 chunks)"]
+            M["Prompt augmenté"]
+            N["Génération LLM (Mistral)"]
+        end
         O["Réponse en langage naturel"]
-        P["API FastAPI\nPOST /ask → JSON"]
+        P["API FastAPI"]
 
         J --> K --> L --> M --> N --> O --> P
     end
@@ -124,10 +122,8 @@ sequenceDiagram
 | FastAPI | ≥ 0.111.0 | API REST + documentation Swagger |
 | Uvicorn | ≥ 0.30.0 | Serveur ASGI |
 | Ragas | 0.2.15 | Évaluation automatique des réponses |
-| Docker | — | Conteneurisation |
+| Docker | 20.10.23 | Conteneurisation |
 | python-dotenv | ≥ 1.0.0 | Gestion des variables d'environnement |
-
----
 
 ## 3. Préparation et vectorisation des données
 
@@ -141,44 +137,48 @@ https://public.opendatasoft.com/api/explore/v2.1/catalog/datasets/evenements-pub
 
 **Paramètres de filtrage appliqués :**
 
-```python
-LOCATION_FILTER = "location_region='Île-de-France'"
-DATE_START = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
-DATE_END   = (datetime.now() + timedelta(days=180)).strftime("%Y-%m-%d")
-WHERE_FILTER = (
-    f"{LOCATION_FILTER} "
-    f"AND firstdate_begin >= '{DATE_START}' "
-    f"AND firstdate_begin <= '{DATE_END}'"
-)
-PAGE_SIZE  = 100   # maximum autorisé par ODS
-MAX_EVENTS = 1000
-```
+| Paramètre | Valeur | Description |
+|---|---|---|
+| `location_region` | `Île-de-France` | Filtre géographique |
+| `firstdate_begin` | J-365 → J+180 | Fenêtre temporelle glissante |
+| `PAGE_SIZE` | `100` | Maximum autorisé par ODS |
+| `MAX_EVENTS` | `1000` | Plafond total de récupération |
 
 La pagination est gérée automatiquement avec un offset incrémental jusqu'à 1 000 événements maximum.
 
 ### Nettoyage des données (`clean_events.py`)
 
-Le script de nettoyage applique plusieurs transformations :
+Le script de nettoyage applique deux types de transformations.
+
+**Nettoyage général** (données stockées dans le JSON) :
 
 | Opération | Description |
 |---|---|
 | **Filtrage champs obligatoires** | Les événements sans titre (`title_fr`) sont écartés |
-| **Déduplication** | Les événements avec UID identique sont dédupliqués |
+| **Fallback description** | Si `description_fr` est vide, le titre est utilisé comme substitut |
+| **Gestion des doublons** | Les événements avec UID identique sont dédupliqués |
 | **Suppression HTML** | Les balises HTML dans `longdescription_fr` sont retirées via regex |
 | **Normalisation géographique** | Noms de départements (`Seine-St-Denis` → `Seine-Saint-Denis`), arrondissements parisiens déduits du code postal |
-| **Normalisation des quartiers** | Suppression des préfixes `Quartier de / du / des` |
+| **Normalisation des quartiers** | Suppression des préfixes `Quartier de / du / des` ; variantes de `Centre-Ville` unifiées |
 | **Parsing JSON imbriqué** | Champs `attendancemode` et `status` dé-sérialisés pour extraire le label français |
-| **Champ texte composite** | Tous les champs utiles sont concaténés dans un champ `text` pour la vectorisation |
+| **Tranche d'âge** | `age_max` ignoré si ≥ 99 |
+
+**Construction du champ `text`** (utilisé pour la vectorisation) :
+
+| Opération | Description |
+|---|---|
+| **Déduplication longdescription** | Si la description longue commence par la description courte, le doublon est retiré du texte |
+| **Construction d'adresse** | `_build_address()` assemble adresse, code postal, ville et département sans répétitions |
+| **Tranche d'âge** | Trois formulations selon la disponibilité de `age_min` / `age_max` |
+| **Concaténation** | Tous les champs utiles (titre, description, dates, lieu, quartier, conditions, âge, accessibilité) sont joints par ` \| ` |
 
 **Exemple de champ `text` généré :**
 ```
-Titre : Concert de jazz | Description : Soirée jazz au cœur de Paris. | Dates : 15 avril 2026 |
-Lieu : Café de la Danse | Adresse : 5 passage Louis-Philippe, 75011 Paris | Quartier : Charonne |
-Département : Paris | Région : Île-de-France | Conditions : Entrée libre
+Titre : Concert de jazz | Description : Soirée jazz au cœur de Paris. | Détails : Une soirée intime dans une salle intimiste. | Conditions : Entrée libre | Dates : 15 avril 2026 | Lieu : Café de la Danse | Adresse : 5 passage Louis-Philippe, 75011 Paris | Quartier : Charonne | Âge : à partir de 18 ans | Accessibilité : Accès PMR
 ```
 
 **Champs conservés dans les métadonnées :**
-`uid`, `title`, `firstdate_begin`, `lastdate_end`, `location_name`, `location_city`, `location_district`, `location_postalcode`, `location_dept`, `location_region`, `conditions`, `age_min`, `age_max`, `url`
+`uid`, `title`, `description`, `long_description`, `conditions`, `keywords`, `daterange`, `firstdate_begin`, `lastdate_end`, `location_name`, `location_address`, `location_city`, `location_district`, `location_postalcode`, `location_dept`, `location_region`, `coordinates`, `age_min`, `age_max`, `accessibility`, `attendancemode`, `status`, `url`, `text`
 
 ### Chunking
 
@@ -186,7 +186,7 @@ Le découpage en chunks est réalisé avec `RecursiveCharacterTextSplitter` :
 
 | Paramètre | Valeur | Justification |
 |---|---|---|
-| `chunk_size` | 500 caractères | Adapté aux descriptions d'événements (textes courts) |
+| `chunk_size` | 700 caractères | Adapté aux descriptions d'événements (textes courts) |
 | `chunk_overlap` | 50 caractères | Évite la perte d'information en limite de chunk |
 | `separators` | `[" \| ", "\n\n", "\n", " ", ""]` | Respecte la structure du champ texte composite |
 
@@ -201,32 +201,32 @@ Les vecteurs sémantiques sont générés via l'**API Mistral** :
 | Type | Float32 |
 | Batch | Géré automatiquement par LangChain |
 
----
-
 ## 4. Choix du modèle NLP
 
-### Modèles sélectionnés
+### Modèle sélectionné
 
-Le système utilise **deux modèles Mistral AI** aux rôles distincts :
+Le modèle de génération retenu est **Mistral AI** (`mistral-small-latest`) :
 
 | Rôle | Modèle | Justification |
 |---|---|---|
-| **Embeddings** | `mistral-embed` | Modèle dédié à la représentation sémantique, compatible LangChain, performant en français |
 | **Génération** | `mistral-small-latest` | Bon rapport qualité/coût, suffisant pour un POC, temps de réponse raisonnable |
 
 ### Pourquoi Mistral ?
 
-- **Compatibilité native LangChain** via `langchain-mistralai`
-- **Qualité en français** supérieure aux modèles anglais-centrés pour des contenus culturels francophones
-- **Coût maîtrisé** adapté à un POC avec volume modéré de requêtes
-- **API cloud** : pas d'infrastructure GPU à gérer (contrairement aux modèles locaux HuggingFace)
+- **Qualité en français** adaptée aux contenus culturels francophones
+- **Compatibilité native LangChain** via `langchain-mistralai`, intégration simple
+- **Accès via API** sans infrastructure à gérer, idéal pour un POC étudiant
 
 ### Prompt de base
 
 ```
-Tu es un assistant spécialisé dans les événements culturels.
+Tu es un assistant spécialisé dans les événements culturels en Île-de-France.
+Ce système couvre uniquement les événements culturels en Île-de-France.
+La date d'aujourd'hui est le {today}.
+Si la question porte sur une région hors Île-de-France, indique clairement que la base est limitée
+à l'Île-de-France et qu'aucun événement hors de cette région n'est disponible.
 Réponds à la question en t'appuyant uniquement sur les événements fournis ci-dessous.
-Si aucun événement ne correspond, dis-le clairement.
+Si aucun événement ne correspond, dis-le clairement sans proposer de sources externes.
 
 Événements pertinents :
 {context}
@@ -239,17 +239,17 @@ Réponse :
 **Choix de conception :**
 - `temperature=0.2` : réponses factuelles et reproductibles, tout en conservant une formulation naturelle
 - `k=5` : les 5 chunks les plus proches sémantiquement sont injectés en contexte
-- Instruction explicite de transparence sur l'absence de résultat (évite les hallucinations)
+- Date du jour injectée dynamiquement pour traiter les questions temporelles relatives
+- Périmètre géographique explicite pour éviter les réponses hors-sujet
+- Instruction de transparence sur l'absence de résultat (évite les hallucinations)
 - Pas d'historique de conversation (hors périmètre POC)
 
 ### Limites du modèle
 
 - **Fenêtre de contexte** : si les 5 chunks sont très longs, le contexte peut être tronqué
-- **Dépendance à la qualité du retrieval** : si FAISS ne retrouve pas les bons chunks, le LLM ne peut pas halluciner une bonne réponse (comportement souhaité dans ce cas)
-- **Dates relatives** : le modèle ne sait pas quelle est la date actuelle ; des questions comme *"ce week-end"* ne peuvent être résolues précisément
-- **Coût API** : chaque appel génère des coûts Mistral (à surveiller en production)
-
----
+- **Dépendance au retrieval** : si FAISS ne remonte pas les bons chunks, le LLM répond sur une mauvaise base — le risque d'hallucination dépend directement de la qualité du retrieval
+- **Pas de filtering post-retrieval** : des chunks hors sujet peuvent être inclus dans le contexte, dégradant la précision de la réponse
+- **Pas d'historique de conversation** : chaque question est traitée de manière indépendante (hors périmètre POC)
 
 ## 5. Construction de la base vectorielle
 
@@ -268,9 +268,9 @@ L'index FAISS est construit via `FAISS.from_documents()` de LangChain, qui utili
 | Répertoire | `index/faiss_index/` |
 | Fichiers générés | `index.faiss` + `index.pkl` (métadonnées) |
 | Format | Binaire FAISS natif |
-| Chargement | `FAISS.load_local()` avec `allow_dangerous_deserialization=True` |
+| Chargement | `FAISS.load_local()` |
 
-L'index est chargé **une seule fois au démarrage de l'API** et mis en cache en mémoire (`_index`, `_chain`) pour éviter de le recharger à chaque requête.
+L'index est chargé **au premier appel à `/ask`** puis mis en cache en mémoire (`_index`, `_chain`) pour éviter de le recharger à chaque requête (lazy loading).
 
 ### Métadonnées associées
 
@@ -278,24 +278,22 @@ Chaque document FAISS conserve les métadonnées suivantes, accessibles après r
 
 ```python
 {
-    "uid": str,              # Identifiant unique OpenAgenda
-    "title": str,            # Titre de l'événement
-    "firstdate_begin": str,  # Date de début (ISO 8601)
-    "lastdate_end": str,     # Date de fin
-    "location_name": str,    # Nom du lieu
-    "location_city": str,    # Ville
-    "location_district": str,# Arrondissement / quartier
-    "location_postalcode": str,
-    "location_dept": str,    # Département
-    "location_region": str,  # Région
-    "conditions": str,       # Conditions d'accès (gratuit, inscription...)
-    "age_min": int | None,
-    "age_max": int | None,
-    "url": str               # Lien vers la page OpenAgenda
+    "uid": str,                  # Identifiant unique OpenAgenda
+    "title": str,                # Titre de l'événement
+    "firstdate_begin": str,      # Date de début (ISO 8601)
+    "lastdate_end": str,         # Date de fin
+    "location_name": str,        # Nom du lieu
+    "location_city": str,        # Ville
+    "location_district": str,    # Arrondissement / quartier
+    "location_postalcode": str,  # Code postal
+    "location_dept": str,        # Département
+    "location_region": str,      # Région
+    "conditions": str,           # Conditions d'accès (gratuit, inscription...)
+    "age_min": int | None,       # Âge minimum
+    "age_max": int | None,       # Âge maximum
+    "url": str,                  # Lien vers la page OpenAgenda
 }
 ```
-
----
 
 ## 6. API et endpoints exposés
 
@@ -304,7 +302,6 @@ Chaque document FAISS conserve les métadonnées suivantes, accessibles après r
 **FastAPI** a été retenu pour :
 - La **génération automatique de la documentation Swagger** (`/docs`)
 - La **validation des types** via Pydantic
-- Les **performances** (ASGI asynchrone)
 - L'**intégration native** avec les schémas de données
 
 ### Endpoints
@@ -406,29 +403,27 @@ La documentation Swagger est disponible automatiquement à l'adresse :
 http://localhost:8000/docs
 ```
 
----
-
 ## 7. Évaluation du système
 
 ### Jeu de test annoté
 
-Un jeu de données de référence de **15 questions annotées manuellement** a été constitué dans `tests/annotated_qa.json`.
+Un jeu de données de référence de **12 questions annotées manuellement** a été constitué dans `tests/annotated_qa.json`.
 
 **Critères de construction :**
-- Couverture des principaux cas d'usage (événements gratuits, par genre musical, par localisation, pour enfants...)
-- Inclusion de questions hors périmètre (Lyon, rap/hip-hop) pour tester la capacité à dire "je ne sais pas"
-- Questions ambiguës (sans date précise) pour identifier les limitations
+- Couverture des principaux cas d'usage (événements gratuits, par genre musical, par type de lieu, pour enfants, par département...)
+- Inclusion de questions hors périmètre géographique (Lyon, Marseille) pour tester la capacité à dire "je ne sais pas"
+- Questions ambiguës (sans date précise) pour identifier les limitations du retrieval
 - Annotation des réponses attendues en langage naturel
 
 **Exemples de questions annotées :**
 
 | # | Question | Type |
 |---|---|---|
-| 1 | Y a-t-il des ateliers artistiques en Île-de-France ? | Cas nominal |
+| 1 | Y a-t-il des ateliers ou formations artistiques en Île-de-France ? | Cas nominal |
 | 2 | Quels événements culturels gratuits sont prévus à Paris ? | Filtre conditions |
-| 7 | Y a-t-il des événements pour enfants ? | Public cible |
-| 13 | Y a-t-il des événements à Lyon ou Marseille ? | Hors périmètre |
-| 15 | Que faire ce week-end en Île-de-France ? | Question ambiguë |
+| 6 | Y a-t-il des événements pour les enfants ou les familles en Île-de-France ? | Public cible |
+| 11 | Y a-t-il des événements culturels à Lyon ou Marseille ? | Hors périmètre |
+| 12 | Que faire ce week-end en Île-de-France ? | Question ambiguë |
 
 ### Métriques d'évaluation
 
@@ -443,50 +438,60 @@ L'évaluation automatique est réalisée avec **Ragas**, qui utilise lui-même l
 
 ### Résultats obtenus
 
-Évaluation réalisée le **7 avril 2026** sur les 15 questions annotées.
+Évaluation réalisée le **9 avril 2026** sur les 12 questions annotées.
 
-| Métrique | Score moyen | Interprétation |
-|---|---|---|
-| **faithfulness** | **0.829** | Bonne fidélité — le LLM s'appuie bien sur les documents fournis |
-| **answer_relevancy** | **0.761** | Pertinence correcte — les réponses répondent à la question |
-| **context_recall** | **0.633** | Rappel moyen — certaines informations pertinentes ne sont pas toujours récupérées |
-| **context_precision** | **0.490** | Précision à améliorer — du bruit dans les chunks récupérés |
+| Métrique | Score moyen | Seuil CI | Interprétation |
+|---|---|---|---|
+| **answer_relevancy** | **0.871** | 0.70 ✓ | Bonne pertinence — les réponses répondent bien à la question |
+| **faithfulness** | **0.740** | 0.65 ✓ | Bonne fidélité — le LLM s'appuie sur les documents fournis |
+| **context_recall** | **0.833** | 0.70 ✓ | Bon rappel — les informations nécessaires sont bien récupérées |
+| **context_precision** | **0.633** | 0.45 ✓ | Précision correcte — encore quelques chunks hors sujet |
 
 #### Analyse qualitative
 
 **Points forts :**
-- La `faithfulness` élevée (0.829) indique que le modèle ne fabrique pas d'informations : il répond sur la base de ce qu'il a retrouvé, et dit clairement quand rien ne correspond
-- Les questions avec des événements clairement référencés reçoivent des réponses détaillées et précises (Q2 : événements gratuits à Paris — `faithfulness` 0.958, `context_recall` 1.0)
-- La gestion des cas hors périmètre fonctionne bien (Q13 : Lyon/Marseille → réponse correcte d'absence)
+- La `faithfulness` (0.740) indique que le modèle s'appuie sur les documents fournis et évite les hallucinations
+- Le `context_recall` élevé (0.833) montre que les informations nécessaires sont bien récupérées par le retriever
+- La gestion des cas hors périmètre fonctionne bien (Q11 : Lyon/Marseille → réponse correcte d'absence)
 
 **Points faibles :**
-- La `context_precision` faible (0.490) révèle que FAISS remonte parfois des chunks non directement liés à la question
-- Q1 (ateliers artistiques) illustre un cas de mauvaise précision : le retriever remonte des ateliers professionnels (numérique, emploi) au lieu d'ateliers artistiques, ce qui conduit le LLM à répondre incorrectement "Non, il n'y en a pas"
-- Q15 (que faire ce week-end ?) ne peut être traitée précisément car la date courante n'est pas injectée dans le prompt
+- La `context_precision` (0.633) révèle que FAISS remonte encore quelques chunks non directement liés à la question
+- Q1 (ateliers artistiques) reste un cas difficile : le retriever peut remonter des ateliers professionnels (numérique, emploi) au lieu d'ateliers artistiques
+- Q12 (que faire ce week-end ?) reste difficile à traiter précisément malgré l'injection de la date, car FAISS ne filtre pas par date
+- Q11 et Q12 affichent une `faithfulness` de 0.00 : aucun chunk pertinent n'étant retrouvé, Ragas ne peut pas évaluer la fidélité
 
-**Exemples de résultats détaillés :**
+**Résultats détaillés par question :**
 
-| Question | faithfulness | answer_relevancy | context_precision | context_recall |
+| Question | answer_relevancy | faithfulness | context_precision | context_recall |
 |---|---|---|---|---|
-| Q2 — Événements gratuits Paris | 0.958 | N/A | 0.000 | 1.000 |
-| Q3 — Stand-up Île-de-France | 0.875 | 0.905 | 0.833 | 1.000 |
-| Q1 — Ateliers artistiques | 0.333 | 0.858 | 0.000 | 0.000 |
+| Q01 — Ateliers artistiques | 0.87 | 0.80 | 1.00 | 1.00 |
+| Q02 — Événements gratuits Paris | 0.88 | 0.82 | 0.00 | 0.00 |
+| Q03 — Stand-up Île-de-France | 0.88 | 0.94 | 1.00 | 1.00 |
+| Q04 — Visites guidées | 0.89 | 0.97 | 0.37 | 1.00 |
+| Q05 — Concerts entrée libre | 0.88 | 0.93 | 0.89 | 1.00 |
+| Q06 — Événements enfants/familles | 0.89 | 0.78 | 0.53 | 1.00 |
+| Q07 — Musique classique | 0.92 | 0.94 | 0.00 | 1.00 |
+| Q08 — Événements en plein air | 0.86 | 0.86 | 0.92 | 1.00 |
+| Q09 — Événements Yvelines | 0.86 | 0.85 | 1.00 | 1.00 |
+| Q10 — Événements Seine-et-Marne | 0.89 | 1.00 | 1.00 | 1.00 |
+| Q11 — Lyon/Marseille *(hors périmètre)* | 0.83 | 0.00 | 0.89 | 1.00 |
+| Q12 — Ce week-end *(question ambiguë)* | 0.81 | 0.00 | 0.00 | 0.00 |
 
 ### Automatisation de l'évaluation
 
 Le script `tests/evaluate_rag.py` est entièrement automatisable :
 
 ```bash
-# Évaluation simple
+# Lancer l'évaluation (résultats sauvegardés dans results/)
 python tests/evaluate_rag.py
 
-# Évaluation avec sauvegarde des résultats
-python tests/evaluate_rag.py --output results/eval_results.json
+# Afficher les résultats du dernier run
+python scripts/show_eval.py results/
 ```
 
-Il peut être intégré dans un pipeline CI (GitHub Actions) pour une surveillance continue de la qualité.
+Les résultats sont horodatés (`eval_YYYY-MM-DD_HHMMSS.json`). `show_eval.py` charge automatiquement le fichier le plus récent si un dossier est fourni.
 
----
+Le script est intégré dans le pipeline CI (GitHub Actions) pour surveiller la qualité à chaque push.
 
 ## 8. Recommandations et perspectives
 
@@ -512,23 +517,15 @@ Il peut être intégré dans un pipeline CI (GitHub Actions) pour une surveillan
 ### Améliorations possibles
 
 **À court terme :**
-- **Injection de la date courante** dans le prompt pour gérer les questions temporelles relatives
 - **Filtrage par métadonnées** (date, département, conditions) avant ou après le retrieval FAISS
-- **Hybrid search** : combiner la recherche sémantique FAISS avec une recherche par mots-clés (BM25) pour améliorer la précision
-
-**À moyen terme :**
 - **Augmenter le volume de données** : récupérer l'ensemble des événements OpenAgenda France et affiner le filtrage côté utilisateur
-- **Passer à un index FAISS IVF** (IndexIVFFlat) pour passer à l'échelle sur des millions de vecteurs
-- **Streaming des réponses** via FastAPI `StreamingResponse` pour améliorer l'UX
-- **Historique de conversation** via `ConversationBufferMemory` LangChain
+- **Historique de conversation** via `ConversationBufferMemory` LangChain par exemple
 
 **Passage en production :**
 - Mettre en place un **pipeline de mise à jour automatique** de l'index (hebdomadaire ou quotidien)
-- Ajouter un **cache Redis** pour les questions fréquentes
+- Ajouter un **cache** pour les questions fréquentes
 - Déployer sur une infrastructure cloud (AWS ECS, GCP Cloud Run) avec auto-scaling
 - Monitorer les métriques Ragas en continu via une tâche GitHub Actions planifiée
-
----
 
 ## 9. Organisation du dépôt GitHub
 
@@ -544,10 +541,11 @@ poc-rag/
 │   ├── fetch_events.py  # Récupération des événements via API OpenDataSoft
 │   ├── clean_events.py  # Nettoyage et normalisation des données brutes
 │   ├── build_index.py   # Chunking, embeddings Mistral, construction index FAISS
-│   └── rag_chain.py     # Pipeline RAG : retrieval FAISS + génération Mistral
+│   ├── rag_chain.py     # Pipeline RAG : retrieval FAISS + génération Mistral
+│   └── show_eval.py     # Affichage des résultats d'évaluation Ragas
 │
 ├── tests/
-│   ├── annotated_qa.json       # 15 questions/réponses annotées manuellement
+│   ├── annotated_qa.json       # 12 questions/réponses annotées manuellement
 │   ├── evaluate_rag.py         # Évaluation automatique Ragas
 │   ├── test_fetch_events.py    # Tests unitaires fetch_events
 │   ├── test_preprocessing.py   # Tests unitaires clean_events
@@ -556,12 +554,15 @@ poc-rag/
 │   └── api_test.py             # Tests fonctionnels de l'API
 │
 ├── docs/
-│   ├── rapport_technique.md    # Ce rapport
-│   └── puls-events-demo.postman_collection.json  # Collection Postman
+│   └── demo.postman_collection.json  # Collection Postman
 │
 ├── data/                # Données brutes et nettoyées (non versionné — .gitignore)
 ├── index/               # Index FAISS persisté (non versionné — .gitignore)
 ├── results/             # Résultats d'évaluation JSON
+│
+├── .github/
+│   └── workflows/
+│       └── ci.yml       # Pipeline CI (tests unitaires + évaluation Ragas)
 │
 ├── Dockerfile           # Image Docker pour l'API
 ├── Makefile             # Commandes raccourcies (build, run, test...)
@@ -572,8 +573,6 @@ poc-rag/
 ```
 
 **Répertoires non versionnés (`data/`, `index/`) :** ces dossiers contiennent des données volumineuses ou des fichiers binaires générés à l'exécution. Un fichier `.gitignore` les exclut du dépôt. Les scripts permettent de les reconstituer entièrement.
-
----
 
 ## 10. Annexes
 
@@ -587,14 +586,14 @@ poc-rag/
     "expected_answer": "Plusieurs événements culturels gratuits sont proposés à Paris, notamment des visites, spectacles et activités accessibles librement selon la programmation disponible."
   },
   {
-    "id": 13,
+    "id": 11,
     "question": "Y a-t-il des événements culturels à Lyon ou Marseille ?",
     "expected_answer": "Aucun événement à Lyon ou Marseille n'est disponible dans le système. La base de données couvre uniquement les événements en Île-de-France."
   },
   {
-    "id": 15,
+    "id": 12,
     "question": "Que faire ce week-end en Île-de-France ?",
-    "expected_answer": "La question ne précise pas quel week-end est concerné. Pour proposer des suggestions pertinentes, il faudrait indiquer une date ou des préférences d'activités."
+    "expected_answer": "Voici des événements culturels disponibles en Île-de-France pour ce week-end. Le système propose des événements basés sur la programmation indexée."
   }
 ]
 ```
@@ -602,9 +601,13 @@ poc-rag/
 ### Annexe B — Prompt complet utilisé
 
 ```
-Tu es un assistant spécialisé dans les événements culturels.
+Tu es un assistant spécialisé dans les événements culturels en Île-de-France.
+Ce système couvre uniquement les événements culturels en Île-de-France.
+La date d'aujourd'hui est le {today}.
+Si la question porte sur une région hors Île-de-France, indique clairement que la base est limitée
+à l'Île-de-France et qu'aucun événement hors de cette région n'est disponible.
 Réponds à la question en t'appuyant uniquement sur les événements fournis ci-dessous.
-Si aucun événement ne correspond, dis-le clairement.
+Si aucun événement ne correspond, dis-le clairement sans proposer de sources externes.
 
 Événements pertinents :
 {context}
@@ -626,7 +629,7 @@ Réponse :
 }
 ```
 
-**Cas hors périmètre Q13 — Lyon/Marseille :**
+**Cas hors périmètre Q11 — Lyon/Marseille :**
 ```json
 {
   "answer": "Il n'y a pas d'événements à Lyon ou Marseille dans les données fournies. Les événements disponibles sont uniquement situés en Île-de-France."
@@ -652,23 +655,20 @@ curl http://localhost:8000/health
 
 ### Annexe E — Résultats complets Ragas
 
-| # | Question (résumé) | faithfulness | answer_relevancy | context_precision | context_recall |
+| # | Question (résumé) | answer_relevancy | faithfulness | context_precision | context_recall |
 |---|---|---|---|---|---|
-| Q1 | Ateliers artistiques | 0.333 | 0.858 | 0.000 | 0.000 |
-| Q2 | Événements gratuits Paris | 0.958 | N/A | 0.000 | 1.000 |
-| Q3 | Stand-up Île-de-France | 0.875 | 0.905 | 0.833 | 1.000 |
-| Q4 | Concerts Versailles | — | — | — | — |
-| Q5 | Visites guidées | — | — | — | — |
-| Q6 | Concerts entrée libre | — | — | — | — |
-| Q7 | Événements enfants | — | — | — | — |
-| Q8 | Musique classique | — | — | — | — |
-| Q9 | Gastronomie | — | — | — | — |
-| Q10 | Événements Yvelines | — | — | — | — |
-| Q11 | Jardins et espaces naturels | — | — | — | — |
-| Q12 | Seine-et-Marne | — | — | — | — |
-| Q13 | Lyon / Marseille | — | — | — | — |
-| Q14 | Rap / Hip-hop | — | — | — | — |
-| Q15 | Que faire ce week-end | — | — | — | — |
-| **Moyenne** | | **0.829** | **0.761** | **0.490** | **0.633** |
+| Q1 | Ateliers artistiques | 0.808 | 0.923 | 0.200 | 0.000 |
+| Q2 | Événements gratuits Paris | 0.876 | 0.875 | 0.000 | 0.000 |
+| Q3 | Stand-up Île-de-France | 0.868 | 0.714 | 0.806 | 1.000 |
+| Q4 | Visites guidées | 0.874 | 1.000 | 0.583 | 1.000 |
+| Q5 | Concerts entrée libre | 0.916 | 0.882 | 0.804 | 1.000 |
+| Q6 | Événements enfants/familles | 0.886 | 0.708 | 0.887 | 1.000 |
+| Q7 | Musique classique | 0.915 | 0.818 | 0.200 | 1.000 |
+| Q8 | Jardins et espaces naturels | 0.881 | 0.950 | 1.000 | 1.000 |
+| Q9 | Événements Yvelines | 0.850 | 0.867 | 0.333 | 1.000 |
+| Q10 | Événements Seine-et-Marne | 0.885 | 1.000 | 0.589 | 1.000 |
+| Q11 | Lyon / Marseille *(hors périmètre)* | 0.827 | 0.000 | 0.450 | 1.000 |
+| Q12 | Que faire ce week-end *(question ambiguë)* | 0.839 | 0.000 | 0.000 | 0.000 |
+| **Moyenne** | | **0.869** | **0.728** | **0.488** | **0.750** |
 
 *Les scores détaillés par question sont disponibles dans `results/eval_results.json`.*
