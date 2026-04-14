@@ -17,7 +17,7 @@ from langchain_mistralai import ChatMistralAI
 from scripts.build_index import get_embeddings
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 
 load_dotenv()
 
@@ -25,9 +25,8 @@ INDEX_DIR = Path(__file__).parent.parent / "index" / "faiss_index"
 RETRIEVER_K = 5
 
 def _build_prompt_template() -> PromptTemplate:
-    today = date.today().strftime("%A %d %B %Y")
     return PromptTemplate.from_template(
-        f"""Tu es un assistant spécialisé dans les événements culturels en Île-de-France.
+        """Tu es un assistant spécialisé dans les événements culturels en Île-de-France.
 Ce système couvre uniquement les événements culturels en Île-de-France.
 La date d'aujourd'hui est le {today}.
 Si la question porte sur une région hors Île-de-France, indique clairement que la base est limitée à l'Île-de-France et qu'aucun événement hors de cette région n'est disponible.
@@ -35,9 +34,9 @@ Réponds à la question en t'appuyant uniquement sur les événements fournis ci
 Si aucun événement ne correspond, dis-le clairement sans proposer de sources externes.
 
 Événements pertinents :
-{{context}}
+{context}
 
-Question : {{question}}
+Question : {question}
 
 Réponse :"""
 )
@@ -64,7 +63,11 @@ def build_chain(index: FAISS, k: int = RETRIEVER_K):
         return "\n\n".join(doc.page_content for doc in docs)
 
     chain = (
-        {"context": retriever | format_docs, "question": RunnablePassthrough()}
+        {
+            "context": retriever | format_docs,
+            "question": RunnablePassthrough(),
+            "today": RunnableLambda(lambda _: date.today().strftime("%A %d %B %Y")),
+        }
         | _build_prompt_template()
         | llm
         | StrOutputParser()
