@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from api.security import verify_api_key
 
 from api.schemas import AskRequest, AskResponse, RebuildResponse, MetadataResponse
-from scripts.rag_chain import ask
+from scripts.rag_chain import ask, load_index
 from scripts.build_index import (
     load_events,
     events_to_documents,
@@ -48,7 +48,6 @@ def get_metadata():
 
     events = json.loads(DATA_FILE.read_text(encoding="utf-8"))
     departments = sorted({e.get("location_dept", "") for e in events if e.get("location_dept")})
-    districts = sorted({e.get("location_district", "") for e in events if e.get("location_district")})
 
     begin_dates = [e["firstdate_begin"] for e in events if e.get("firstdate_begin")]
     end_dates = [e["lastdate_end"] for e in events if e.get("lastdate_end")]
@@ -56,16 +55,22 @@ def get_metadata():
     last_event_date = max(end_dates) if end_dates else None
 
     last_rebuilt = None
+    total_chunks = None
     if INDEX_DIR.exists():
         last_rebuilt = datetime.fromtimestamp(INDEX_DIR.stat().st_mtime).isoformat(timespec="seconds")
+        try:
+            index = load_index()
+            total_chunks = index.index.ntotal
+        except Exception:
+            pass
 
     return MetadataResponse(
         total_events=len(events),
         last_rebuilt=last_rebuilt,
         first_event_date=first_event_date,
         last_event_date=last_event_date,
+        total_chunks=total_chunks,
         departments=departments,
-        districts=districts
     )
 
 

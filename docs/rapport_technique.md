@@ -10,7 +10,7 @@
 1. [Objectifs du projet](#1-objectifs-du-projet)
 2. [Architecture du système](#2-architecture-du-système)
 3. [Préparation et vectorisation des données](#3-préparation-et-vectorisation-des-données)
-4. [Choix du modèle NLP](#4-choix-du-modèle-nlp)
+4. [Choix du LLM](#4-choix-du-llm)
 5. [Construction de la base vectorielle](#5-construction-de-la-base-vectorielle)
 6. [API et endpoints exposés](#6-api-et-endpoints-exposés)
 7. [Évaluation du système](#7-évaluation-du-système)
@@ -48,7 +48,7 @@ Démontrer la **faisabilité technique et la valeur métier** d'un assistant de 
 |---|---|
 | Zone géographique | Île-de-France |
 | Source de données | API OpenAgenda (via OpenDataSoft) |
-| Période couverte | 12 derniers mois + 6 mois à venir |
+| Période couverte | 1 mois avant la date du build + 6 mois à venir |
 | Volume d'événements | jusqu'à 1 000 événements |
 | Langue | Français |
 
@@ -56,65 +56,13 @@ Démontrer la **faisabilité technique et la valeur métier** d'un assistant de 
 
 ### Schéma global
 
-```mermaid
-flowchart TD
-    subgraph INGESTION["🗂️ Pipeline de données"]
-        subgraph PREPROCESS["📦 Préprocessing"]
-            A["API OpenAgenda"]
-            B["fetch_events.py"]
-            C[/"raw_events.json"/]
-            D["clean_events.py"]
-            E[/"clean_events.json"/]
-            A --> B --> C --> D --> E
-        end
-        subgraph INDEXATION["🔍 Indexation"]
-            F["build_index.py"]
-            subgraph LC1["LangChain"]
-                G["Chunking"]
-                H["Embedding (Mistral)"]
-            end
-            I[("Index FAISS")]
-            F --> G --> H --> I
-        end
-        E --> F
-    end
-
-    subgraph RAG["🤖 Pipeline RAG (requête)"]
-        J["Question utilisateur"]
-        subgraph LC2["LangChain"]
-            K["Embedding de la question"]
-            L["Recherche FAISS\n(top-5 chunks)"]
-            M["Prompt augmenté"]
-            N["Génération LLM (Mistral)"]
-        end
-        O["Réponse en langage naturel"]
-        P["API FastAPI"]
-
-        J --> K --> L --> M --> N --> O --> P
-    end
-
-    I -.->|"chargé au démarrage"| L
-```
+![Architecture du pipeline RAG](img/pipeline_rag_architecture.png)
 
 ### Diagramme de séquence UML (appel `/ask`)
 
-```mermaid
-sequenceDiagram
-    actor U as Utilisateur
-    participant API as FastAPI
-    participant RAG as rag_chain.py
-    participant F as FAISS
-    participant M as Mistral API
+![Diagramme de séquence UML — appel /ask](img/diagramme_uml.png)
 
-    U->>API: POST /ask {"question": "..."}
-    API->>RAG: ask(question)
-    RAG->>F: embed(question) + similarity search (k=5)
-    F-->>RAG: top-5 chunks pertinents
-    RAG->>M: prompt augmenté (contexte + question)
-    M-->>RAG: réponse générée
-    RAG-->>API: AskResponse(answer)
-    API-->>U: 200 OK {"answer": "..."}
-```
+*Source Mermaid disponible en [Annexe E](#annexe-e--diagramme-de-séquence-source-mermaid).*
 
 ### Technologies utilisées
 
@@ -156,7 +104,7 @@ https://public.opendatasoft.com/api/explore/v2.1/catalog/datasets/evenements-pub
 | Paramètre | Valeur | Description |
 |---|---|---|
 | `location_region` | `Île-de-France` | Filtre géographique |
-| `firstdate_begin` | J-365 → J+180 | Fenêtre temporelle glissante |
+| `firstdate_begin` | J-30 → J+180 | Fenêtre glissante : 1 mois avant la date du build + 6 mois à venir |
 | `PAGE_SIZE` | `100` | Maximum autorisé par ODS |
 | `MAX_EVENTS` | `1000` | Plafond total de récupération |
 
@@ -181,12 +129,7 @@ Le script de nettoyage applique deux types de transformations.
 
 **Construction du champ `text`** (utilisé pour la vectorisation) :
 
-| Opération | Description |
-|---|---|
-| **Déduplication longdescription** | Si la description longue commence par la description courte, le doublon est retiré du texte |
-| **Construction d'adresse** | `_build_address()` assemble adresse, code postal, ville et département sans répétitions |
-| **Tranche d'âge** | Trois formulations selon la disponibilité de `age_min` / `age_max` |
-| **Concaténation** | Tous les champs utiles (titre, description, dates, lieu, quartier, conditions, âge, accessibilité) sont joints par ` \| ` |
+Tous les champs utiles (titre, description, dates, lieu, quartier, conditions, âge, accessibilité) sont concaténés en un seul champ texte séparé par ` | `. Une attention particulière est portée à éviter les répétitions : si la description longue commence par la description courte, le doublon est retiré.
 
 **Exemples d'anomalies corrigées :**
 
@@ -213,7 +156,7 @@ Le découpage en chunks est réalisé avec `RecursiveCharacterTextSplitter` :
 
 | Paramètre | Valeur | Justification |
 |---|---|---|
-| `chunk_size` | 700 caractères | La longueur médiane d'un champ `text` est de 839 caractères (moyenne 984, P25 : 573) — un chunk de 700 couvre la plupart des événements courts en un seul morceau et découpe les plus longs en 2 chunks maximum |
+| `chunk_size` | 700 caractères | Valeur retenue après test à 500 caractères — les métriques Ragas étaient moins bonnes à 500, probablement parce que les chunks trop courts perdaient le contexte complet d'un événement |
 | `chunk_overlap` | 50 caractères | Évite la perte d'information en limite de chunk |
 | `separators` | `[" \| ", "\n\n", "\n", " ", ""]` | Respecte la structure du champ texte composite |
 
@@ -240,9 +183,7 @@ Le modèle de génération retenu est **Mistral AI** (`mistral-small-latest`) :
 
 ### Pourquoi Mistral ?
 
-- **Qualité en français** adaptée aux contenus culturels francophones
-- **Compatibilité native LangChain** via `langchain-mistralai`, intégration simple
-- **Accès via API** sans infrastructure à gérer, idéal pour un POC étudiant
+J'ai choisi Mistral pour plusieurs raisons pratiques : sa qualité en français est bien adaptée aux contenus culturels francophones, son intégration dans LangChain est native via `langchain-mistralai`, et l'accès par API évite d'avoir à gérer une infrastructure GPU — ce qui est idéal dans le cadre d'un POC.
 
 ### Prompt de base
 
@@ -265,7 +206,7 @@ Réponse :
 
 **Choix de conception :**
 - `temperature=0.2` : réponses factuelles et reproductibles, tout en conservant une formulation naturelle
-- `k=5` : les 5 chunks les plus proches sémantiquement sont injectés en contexte
+- `k=7` : les 7 chunks les plus proches sémantiquement sont injectés en contexte
 - Date du jour injectée dynamiquement pour traiter les questions temporelles relatives
 - Périmètre géographique explicite pour éviter les réponses hors-sujet
 - Instruction de transparence sur l'absence de résultat (évite les hallucinations)
@@ -303,24 +244,10 @@ L'index est chargé **au premier appel à `/ask`** puis mis en cache en mémoire
 
 Chaque document FAISS conserve les métadonnées suivantes, accessibles après retrieval :
 
-```python
-{
-    "uid": str,                  # Identifiant unique OpenAgenda
-    "title": str,                # Titre de l'événement
-    "firstdate_begin": str,      # Date de début (ISO 8601)
-    "lastdate_end": str,         # Date de fin
-    "location_name": str,        # Nom du lieu
-    "location_city": str,        # Ville
-    "location_district": str,    # Arrondissement / quartier
-    "location_postalcode": str,  # Code postal
-    "location_dept": str,        # Département
-    "location_region": str,      # Région
-    "conditions": str,           # Conditions d'accès (gratuit, inscription...)
-    "age_min": int | None,       # Âge minimum
-    "age_max": int | None,       # Âge maximum
-    "url": str,                  # Lien vers la page OpenAgenda
-}
-```
+- **Identification** : `uid`, `title`, `url`
+- **Dates** : `firstdate_begin`, `lastdate_end`
+- **Lieu** : `location_name`, `location_city`, `location_district`, `location_dept`
+- **Infos pratiques** : `conditions` (gratuit, payant…), `age_min`, `age_max`, `accessibility`
 
 ## 6. API et endpoints exposés
 
@@ -423,6 +350,9 @@ response = requests.post(
 print(response.json()["answer"])
 ```
 
+**Postman :**
+Une collection Postman complète couvrant tous les endpoints (nominal, hors périmètre, rebuild avec et sans auth) est disponible dans [`docs/demo.postman_collection.json`](demo.postman_collection.json). Importer le fichier dans Postman et renseigner la variable `BASE_URL` (`http://localhost:8000`) pour tester l'API sans écrire de code.
+
 ### Documentation interactive
 
 La documentation Swagger est disponible automatiquement à l'adresse :
@@ -449,7 +379,10 @@ Tous ces tests passent dans le pipeline CI (GitHub Actions). La documentation Sw
 
 ### Jeu de test annoté
 
-Un jeu de données de référence de **12 questions annotées manuellement** a été constitué dans `tests/annotated_qa.json`.
+Un jeu de données de référence de **12 questions annotées manuellement** a été constitué dans `tests/annotated_qa.json`. Ce nombre de tests suffit pour vérifier que le POC fonctionne et repérer les grosses erreurs automatiquement, mais il est trop faible pour obtenir des résultats vraiment fiables pour une version en production (une seule valeur inhabituelle peut changer les résultats)
+
+**Méthode d'annotation :**
+Les questions et réponses de référence ont été rédigées et annotées manuellement, sur la base des données réellement présentes dans l'index. Chaque réponse attendue a été formulée en langage naturel après vérification directe dans les données sources, sans utiliser le système RAG pour ne pas biaiser l'évaluation.
 
 **Critères de construction :**
 - Couverture des principaux cas d'usage (événements gratuits, par genre musical, par type de lieu, pour enfants, par département...)
@@ -469,7 +402,7 @@ Un jeu de données de référence de **12 questions annotées manuellement** a �
 
 ### Métriques d'évaluation
 
-L'évaluation automatique est réalisée avec **Ragas**, qui utilise lui-même le LLM Mistral pour scorer chaque réponse :
+Plutôt qu'une évaluation manuelle subjective (score de satisfaction, similarité estimée à l'œil), le framework **Ragas** a été choisi pour automatiser le scoring et le rendre reproductible dans la CI. Ragas utilise lui-même le LLM Mistral pour scorer chaque réponse selon quatre axes :
 
 | Métrique | Description |
 |---|---|
@@ -480,7 +413,7 @@ L'évaluation automatique est réalisée avec **Ragas**, qui utilise lui-même l
 
 ### Résultats obtenus
 
-Évaluation réalisée le **9 avril 2026** sur les 12 questions annotées.
+Évaluation réalisée le **9 avril 2026** sur les 12 questions annotées ([résultats bruts](../results/eval_2026-04-09_160023.json)).
 
 | Métrique | Score moyen | Seuil CI | Interprétation |
 |---|---|---|---|
@@ -490,6 +423,8 @@ L'évaluation automatique est réalisée avec **Ragas**, qui utilise lui-même l
 | **context_precision** | **0.633** | 0.45 ✓ | Précision correcte — encore quelques chunks hors sujet |
 
 #### Analyse qualitative
+
+Ce qui m'a surpris dans les résultats, c'est que la `faithfulness` est meilleure que prévu (0.740) : le modèle s'appuie réellement sur les documents fournis sans inventer. En revanche, la `context_precision` reste le point faible du système — FAISS remonte des chunks sémantiquement proches mais pas toujours thématiquement pertinents.
 
 **Points forts :**
 - La `faithfulness` (0.740) indique que le modèle s'appuie sur les documents fournis et évite les hallucinations
@@ -501,13 +436,9 @@ L'évaluation automatique est réalisée avec **Ragas**, qui utilise lui-même l
 - Q1 (ateliers artistiques) reste un cas difficile : le retriever peut remonter des ateliers professionnels (numérique, emploi) au lieu d'ateliers artistiques
 - Q12 (que faire ce week-end ?) reste difficile à traiter précisément malgré l'injection de la date, car FAISS ne filtre pas par date
 - Q11 et Q12 affichent une `faithfulness` de 0.00 : aucun chunk pertinent n'étant retrouvé, Ragas ne peut pas calculer la fidélité — c'est une limite de la métrique, pas du système (le système répond correctement qu'il n'a pas de résultat)
+- Q02 et Q07 affichent une `context_precision` de 0.00 malgré des réponses de bonne qualité. La raison : Ragas compare les chunks récupérés à la réponse de référence — si cette référence est trop vague (ex. *"plusieurs événements gratuits sont disponibles"*), la métrique ne peut pas faire le lien avec les chunks précis retournés. Q07 illustre bien ce problème avec la combinaison `context_precision = 0.00` et `context_recall = 1.00` : le retriever a bien trouvé les bons documents, mais la métrique échoue à le reconnaître.
 
-**Exemple de réponse imparfaite — Q1 (ateliers artistiques) :**
-
-> *Question :* "Y a-t-il des ateliers ou formations artistiques en Île-de-France ?"  
-> *Réponse générée :* "Oui, voici quelques ateliers disponibles : Atelier numérique au Carrefour Numérique² (La Villette), Formation bureautique à la médiathèque de Créteil, Atelier d'initiation à la robotique à Massy."
-
-Le retriever a remonté des ateliers au sens large (numérique, emploi) car le mot "atelier" est présent dans leurs descriptions — sans distinction du domaine artistique. La `context_precision` est pourtant à 1.00 car Ragas juge les chunks récupérés cohérents avec la question générique. C'est un cas où la précision sémantique fine dépasse les capacités actuelles du retrieval sans filtrage post-retrieval.
+Des exemples de bonne et mauvaise réponse sont disponibles en **Annexe B**.
 
 **Résultats détaillés par question :**
 
@@ -523,8 +454,10 @@ Le retriever a remonté des ateliers au sens large (numérique, emploi) car le m
 | Q08 — Événements en plein air | 0.86 | 0.86 | 0.92 | 1.00 |
 | Q09 — Événements Yvelines | 0.86 | 0.85 | 1.00 | 1.00 |
 | Q10 — Événements Seine-et-Marne | 0.89 | 1.00 | 1.00 | 1.00 |
-| Q11 — Lyon/Marseille *(hors périmètre)* | 0.83 | 0.00 | 0.89 | 1.00 |
-| Q12 — Ce week-end *(question ambiguë)* | 0.81 | 0.00 | 0.00 | 0.00 |
+| Q11 — Lyon/Marseille *(hors périmètre)* | 0.83 | 0.00 ⚠ | 0.89 | 1.00 |
+| Q12 — Ce week-end *(question ambiguë)* | 0.81 | 0.00 ⚠ | 0.00 ⚠ | 0.00 |
+
+*⚠ Score à 0.00 : limite de la métrique Ragas, non un échec système — voir analyse qualitative.*
 
 ### Automatisation de l'évaluation
 
@@ -556,26 +489,28 @@ Le script est intégré dans le pipeline CI (GitHub Actions) pour surveiller la 
 | Limite | Impact |
 |---|---|
 | **Volume limité (1 000 événements)** | La couverture thématique est partielle |
-| **Date figée à l'initialisation du serveur** | La date est injectée une fois au démarrage (`_build_chain`) ; si le serveur tourne plusieurs jours sans redémarrage, la date peut être obsolète |
-| **Pas de filtrage temporel dans l'index FAISS** | Les questions relatives ("ce week-end") comprennent la date mais FAISS ne filtre pas par champ — des événements passés peuvent remonter |
-| **Index `IndexFlatL2`** | Ne passera pas à l'échelle sur des millions de documents |
-| **Pas de filtering post-retrieval** | Chunks hors sujet parfois inclus dans le contexte |
+| **Pas de persistance des données brutes** | Chaque rebuild re-fetch et re-embed l'intégralité des événements — coûteux en temps et en appels API |
+| **Pas de filtrage par métadonnées** | FAISS ne filtre pas par champ : événements passés ou hors sujet peuvent remonter dans le contexte |
 | **Coût API Mistral** | Chaque embed + génération est facturé |
 | **Pas d'historique de conversation** | Les sessions multi-tours ne sont pas supportées |
 | **Pas de streaming** | Le temps d'attente peut être perçu comme long côté utilisateur |
+| **Performance non optimisée** | Le système n'a pas été testé sous charge — acceptable pour un POC mais insuffisant en production |
 
 ### Améliorations possibles
 
 **À court terme :**
-- **Filtrage par métadonnées** (date, département, conditions) avant ou après le retrieval FAISS
-- **Augmenter le volume de données** : récupérer l'ensemble des événements OpenAgenda France et affiner le filtrage côté utilisateur
-- **Historique de conversation** via `ConversationBufferMemory` LangChain par exemple
+
+- **Filtrage par métadonnées** (date, département) avant le retrieval FAISS pour améliorer la précision sur les questions temporelles.
+- **Base de données locale** (SQLite ou PostgreSQL) pour ne re-embedder que les nouveaux événements à chaque mise à jour et réduire les coûts API.
+- **Augmenter le volume de données** en récupérant les événements au-delà de l'Île-de-France pour améliorer la couverture thématique.
+- **Historique de conversation** via `ConversationBufferMemory` LangChain pour permettre les questions de suivi sans perdre le contexte.
 
 **Passage en production :**
-- Mettre en place un **pipeline de mise à jour automatique** de l'index (hebdomadaire ou quotidien)
-- Ajouter un **cache** pour les questions fréquentes
-- Déployer sur une infrastructure cloud (AWS ECS, GCP Cloud Run) avec auto-scaling
-- Monitorer les métriques Ragas en continu via une tâche GitHub Actions planifiée
+
+- Mise à jour automatique de l'index via une tâche cron (quotidienne ou hebdomadaire).
+- Déploiement sur **HuggingFace Spaces** (Docker) ou un service cloud (Railway, Render).
+- Ajout d'un **cache** pour les questions fréquentes afin de limiter les appels API Mistral.
+
 
 ## 9. Organisation du dépôt GitHub
 
@@ -614,6 +549,7 @@ poc-rag/
 │   └── workflows/
 │       └── ci.yml       # Pipeline CI (tests unitaires + évaluation Ragas)
 │
+├── docker-compose.yml   # Lancement du pipeline complet (build index + API)
 ├── Dockerfile           # Image Docker pour l'API
 ├── Makefile             # Commandes raccourcies (build, run, test...)
 ├── requirements.txt     # Dépendances Python
@@ -626,7 +562,7 @@ poc-rag/
 
 ## 10. Annexes
 
-### Annexe A — Extraits du jeu de test annoté
+### Annexe A — Extraits du jeu de test annoté ([fichier complet](../tests/annotated_qa.json))
 
 ```json
 [
@@ -648,21 +584,32 @@ poc-rag/
 ]
 ```
 
-### Annexe B — Exemples de réponses JSON
+### Annexe B — Exemples de réponses
 
-**Question Q3 — Stand-up :**
-```json
-{
-  "answer": "Oui, il y a un spectacle de stand-up en Île-de-France :\n\n**Stand-up autour du thème de l'argent**\n- **Description** : Spectacle de stand-up mêlant humour et réflexions sur notre relation avec l'argent.\n- **Date** : Samedi 4 avril à 17h00\n- **Lieu** : Médiathèque Ulysse, Saint-Denis (93)\n- **Accès** : Libre (à partir de 13 ans)\n- **Adresse** : 37 cours du Rû de Montfort, 93200 Saint-Denis"
-}
-```
+**Bonne réponse — Q03 (stand-up) :**
 
-**Cas hors périmètre Q11 — Lyon/Marseille :**
-```json
-{
-  "answer": "Il n'y a pas d'événements à Lyon ou Marseille dans les données fournies. Les événements disponibles sont uniquement situés en Île-de-France."
-}
-```
+> *Question :* "Y a-t-il des spectacles de comédie ou de stand-up en Île-de-France ?"
+>
+> *Réponse générée :*
+> "Oui, il y a un spectacle de comédie en Île-de-France :
+> **Titre** : Comédie avec Amélie Abrieu dans une cave voûtée à Paris – 15 mai
+> **Description** : Comédie hilarante à Paris avec Amélie Abrieu, le 15 mai. **Prix** : 15€ (places limitées). **Date** : Vendredi 22 mai, 20h30. **Lieu** : Théâtre Coluche, 980 Avenue Du Général De Gaulle, 78370 Plaisir, Yvelines. **Âge** : À partir de 15 ans.
+> Aucun autre spectacle de stand-up ou de comédie n'est référencé dans la base de données."
+
+Les 5 chunks récupérés sont tous directement pertinents (`context_precision = 1.00`). La réponse restitue fidèlement les informations sans inventer (`faithfulness = 0.94`) et répond bien à la question (`answer_relevancy = 0.88`). C'est le cas nominal idéal du système.
+
+---
+
+**Mauvaise réponse — Q01 (ateliers artistiques, run `eval_2026-04-09_141947`) :**
+
+> *Question :* "Y a-t-il des ateliers ou formations artistiques en Île-de-France ?"
+>
+> *Réponse générée :*
+> "Oui, il y a un événement artistique en Île-de-France :
+> **Titre :** Découverte d'une cité d'artistes Art Déco — Visite commentée. Au programme des journées du patrimoine 2025, la Cité Montmartre aux Artistes ouvrira exceptionnellement ses portes.
+> Aucun autre événement artistique n'est répertorié dans la base pour l'Île-de-France."
+
+Les chunks récupérés par FAISS étaient : formation numérique École 42, Salon de l'Étudiant, coaching professionnel, et visite de la Cité Montmartre aux Artistes. Le mot "formation" a remonté des événements d'insertion professionnelle, et "artistes" a remonté une visite de patrimoine — aucun atelier artistique au sens strict. Résultat : `context_precision = 0.20`, la réponse passe à côté de la demande. C'est une limite du retrieval sémantique sans filtrage par catégorie d'événement.
 
 ### Annexe C — Commandes Docker
 
@@ -677,11 +624,19 @@ docker run -p 8000:8000 \
   -v $(pwd)/index:/app/index \
   puls-events-rag
 
+# Lancement pipeline complet (build index + API)
+docker-compose up
+
 # Test rapide post-démarrage
 curl http://localhost:8000/health
 ```
 
 ### Annexe D — Résultats complets Ragas
+
+```bash
+# Afficher les résultats du dernier run
+python scripts/show_eval.py results/
+```
 
 Run de référence : `results/eval_2026-04-09_160023.json`
 
@@ -700,3 +655,32 @@ Run de référence : `results/eval_2026-04-09_160023.json`
 | Q11 | Lyon / Marseille *(hors périmètre)* | 0.826 | 0.000 | 0.887 | 1.000 |
 | Q12 | Que faire ce week-end *(question ambiguë)* | 0.814 | 0.000 | 0.000 | 0.000 |
 | **Moyenne** | | **0.871** | **0.740** | **0.633** | **0.833** |
+
+### Annexe E — Diagramme de séquence source (Mermaid)
+
+```mermaid
+sequenceDiagram
+    actor U as Utilisateur
+    participant API as FastAPI
+    participant RAG as RagChain
+    participant E as Embedding Model
+    participant F as FAISS
+    participant M as Mistral API
+
+    U->>API: POST /ask {"question": "..."}
+    API->>RAG: ask(question)
+
+    RAG->>E: embed(question)
+    E-->>RAG: question_vector
+
+    RAG->>F: similarity_search(vector, k=7)
+    F-->>RAG: top-5 chunks
+
+    RAG->>RAG: build_prompt(context + question)
+
+    RAG->>M: completion(prompt)
+    M-->>RAG: answer
+
+    RAG-->>API: AskResponse(answer)
+    API-->>U: 200 OK {"answer": "..."}
+```
