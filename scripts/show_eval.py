@@ -5,6 +5,7 @@ from pathlib import Path
 
 
 METRICS = ["answer_relevancy", "faithfulness", "context_precision", "context_recall"]
+THRESHOLDS = {"answer_relevancy": 0.70, "faithfulness": 0.65, "context_precision": 0.45, "context_recall": 0.70}
 
 
 def load_report(path: Path) -> dict:
@@ -19,20 +20,33 @@ def load_report(path: Path) -> dict:
         return json.load(f)
 
 
+def print_metrics_summary(averages: dict[str, float], notes: dict[str, str] | None = None) -> None:
+    print("\n" + "=" * 60)
+    print("RÉSULTATS D'ÉVALUATION RAG (Ragas)")
+    print("=" * 60)
+    for metric, avg in averages.items():
+        threshold = THRESHOLDS.get(metric)
+        status = "✓" if threshold is None or avg >= threshold else "✗"
+        threshold_str = f"  (seuil : {threshold:.2f})" if threshold is not None else ""
+        note = (notes or {}).get(metric, "")
+        print(f"  {status} {metric:<25} : {avg:.3f}{threshold_str}{note}")
+    print("=" * 60)
+
+
 def display(report: dict) -> None:
     print(f"Évalué le : {report['evaluated_at']}")
     rows = report["results"]
 
-    print("\n" + "=" * 60)
-    print("RÉSULTATS D'ÉVALUATION RAG (Ragas)")
-    print("=" * 60)
+    averages = {}
+    notes = {}
     for metric in METRICS:
         values = [r[metric] for r in rows if r.get(metric) is not None and r[metric] == r[metric]]
         if values:
-            avg = sum(values) / len(values)
-            note = f"  ({len(rows) - len(values)} nan ignoré)" if len(values) < len(rows) else ""
-            print(f"  {metric:<25} : {avg:.3f}{note}")
-    print("=" * 60)
+            averages[metric] = sum(values) / len(values)
+            if len(values) < len(rows):
+                notes[metric] = f"  ({len(rows) - len(values)} nan ignoré)"
+
+    print_metrics_summary(averages, notes)
 
     print("\nDétail par question :")
     for i, row in enumerate(rows, 1):
