@@ -35,12 +35,7 @@ Cela permet d'offrir une expérience conversationnelle pertinente, ancrée dans 
 
 ### Objectif du POC
 
-Démontrer la **faisabilité technique et la valeur métier** d'un assistant de recommandation culturelle basé sur RAG, avec :
-
-- Un pipeline complet de la donnée brute à la réponse générée
-- Une API REST interrogeable par les équipes produit et marketing
-- Une évaluation automatisée de la qualité des réponses
-- Un déploiement conteneurisé reproductible
+L'idée de ce POC est de montrer qu'on peut construire un assistant de recommandation culturelle basé sur RAG, fonctionnel de bout en bout. Concrètement, ça veut dire : partir des données brutes OpenAgenda et arriver à une réponse générée, via une API interrogeable par les équipes produit et marketing. Le tout devait être évalué automatiquement et reproductible via Docker.
 
 ### Périmètre
 
@@ -80,6 +75,8 @@ Démontrer la **faisabilité technique et la valeur métier** d'un assistant de 
 
 ### Rôle des composants
 
+J'ai découpé le pipeline en scripts indépendants, chacun responsable d'une étape. Ça facilite les tests et le debug — on peut relancer un script sans tout recommencer depuis le début.
+
 | Composant | Fichier | Rôle |
 |---|---|---|
 | **Récupération** | `scripts/fetch_events.py` | Interroge l'API OpenDataSoft, pagine les résultats et persiste les événements bruts dans `data/raw_events.json` |
@@ -112,7 +109,7 @@ La pagination est gérée automatiquement avec un offset incrémental jusqu'à 1
 
 ### Nettoyage des données (`clean_events.py`)
 
-Le script de nettoyage applique deux types de transformations.
+Les données brutes de l'API OpenAgenda présentent plusieurs irrégularités qu'il a fallu corriger avant indexation : champs vides, balises HTML, JSON imbriqués dans des strings... Le script s'occupe de deux choses :
 
 **Nettoyage général** (données stockées dans le JSON) :
 
@@ -156,7 +153,7 @@ Le découpage en chunks est réalisé avec `RecursiveCharacterTextSplitter` :
 
 | Paramètre | Valeur | Justification |
 |---|---|---|
-| `chunk_size` | 700 caractères | Valeur retenue après test à 500 caractères — les métriques Ragas étaient moins bonnes à 500, probablement parce que les chunks trop courts perdaient le contexte complet d'un événement |
+| `chunk_size` | 700 caractères | J'ai d'abord essayé 500 caractères, mais les métriques Ragas étaient moins bonnes. Mon hypothèse : à 500 caractères, un événement se retrouvait coupé en plein milieu, ce qui faisait perdre le contexte global. En passant à 700, les scores se sont améliorés. |
 | `chunk_overlap` | 50 caractères | Évite la perte d'information en limite de chunk |
 | `separators` | `[" \| ", "\n\n", "\n", " ", ""]` | Respecte la structure du champ texte composite |
 
@@ -223,11 +220,7 @@ Réponse :
 
 ### FAISS utilisé
 
-L'index FAISS est construit via `FAISS.from_documents()` de LangChain, qui utilise par défaut un **index `IndexFlatL2`** (recherche exacte par distance L2). Ce choix est adapté au POC car :
-
-- Le volume de données est limité (< 10 000 chunks)
-- La précision est maximale (pas d'approximation)
-- Les temps de réponse sont acceptables à cette échelle
+L'index FAISS est construit via `FAISS.from_documents()` de LangChain, qui utilise par défaut un **index `IndexFlatL2`** (recherche exacte par distance L2). Pour un POC à moins de 10 000 chunks, ça suffit largement : la recherche est exacte et les temps de réponse restent corrects. Si le volume grossissait vraiment, il faudrait passer à un index approximatif (HNSW ou IVF), mais ça n'avait pas de sens ici.
 
 ### Stratégie de persistance
 
@@ -379,7 +372,7 @@ Tous ces tests passent dans le pipeline CI (GitHub Actions). La documentation Sw
 
 ### Jeu de test annoté
 
-Un jeu de données de référence de **12 questions annotées manuellement** a été constitué dans `tests/annotated_qa.json`. Ce nombre de tests suffit pour vérifier que le POC fonctionne et repérer les grosses erreurs automatiquement, mais il est trop faible pour obtenir des résultats vraiment fiables pour une version en production (une seule valeur inhabituelle peut changer les résultats)
+Un jeu de données de référence de **12 questions annotées manuellement** a été constitué dans `tests/annotated_qa.json`. Ce jeu de test couvre les principaux cas d'usage et permet de détecter les comportements aberrants, mais reste limité : avec seulement 12 questions, un score atypique sur une seule entrée peut faire varier significativement la moyenne. Pour une mise en production, un jeu d'au moins 50 questions serait nécessaire pour des résultats statistiquement fiables.
 
 **Méthode d'annotation :**
 Les questions et réponses de référence ont été rédigées et annotées manuellement, sur la base des données réellement présentes dans l'index. Chaque réponse attendue a été formulée en langage naturel après vérification directe dans les données sources, sans utiliser le système RAG pour ne pas biaiser l'évaluation.
@@ -402,7 +395,9 @@ Les questions et réponses de référence ont été rédigées et annotées manu
 
 ### Métriques d'évaluation
 
-Plutôt qu'une évaluation manuelle subjective (score de satisfaction, similarité estimée à l'œil), le framework **Ragas** a été choisi pour automatiser le scoring et le rendre reproductible dans la CI. Ragas utilise lui-même le LLM Mistral pour scorer chaque réponse selon quatre axes :
+**Ragas** est un framework open-source conçu spécifiquement pour évaluer les systèmes RAG. Son principe : il utilise un LLM (ici Mistral) pour comparer automatiquement les réponses générées aux réponses de référence et aux chunks récupérés, selon plusieurs axes. C'est une alternative plus rigoureuse que de noter manuellement chaque réponse à l'œil.
+
+J'ai choisi Ragas plutôt qu'une évaluation manuelle subjective pour que les résultats soient automatisables et reproductibles dans la CI — n'importe qui peut relancer l'évaluation et obtenir les mêmes chiffres. Ragas score chaque réponse selon quatre axes :
 
 | Métrique | Description |
 |---|---|
@@ -424,7 +419,7 @@ Plutôt qu'une évaluation manuelle subjective (score de satisfaction, similarit
 
 #### Analyse qualitative
 
-Ce qui m'a surpris dans les résultats, c'est que la `faithfulness` est meilleure que prévu (0.740) : le modèle s'appuie réellement sur les documents fournis sans inventer. En revanche, la `context_precision` reste le point faible du système — FAISS remonte des chunks sémantiquement proches mais pas toujours thématiquement pertinents.
+Le résultat le plus notable est la `faithfulness` (0.740) : le modèle s'appuie réellement sur les documents fournis sans inventer, ce qui est le comportement attendu pour éviter les hallucinations. En revanche, la `context_precision` reste le point faible du système — FAISS remonte des chunks sémantiquement proches mais pas toujours thématiquement pertinents.
 
 **Points forts :**
 - La `faithfulness` (0.740) indique que le modèle s'appuie sur les documents fournis et évite les hallucinations
@@ -479,10 +474,10 @@ Le script est intégré dans le pipeline CI (GitHub Actions) pour surveiller la 
 
 ### Ce qui fonctionne bien
 
-- Le pipeline de bout en bout est fonctionnel et reproductible
-- La fidélité des réponses est bonne : le système évite les hallucinations
-- La gestion des cas hors périmètre (hors Île-de-France, hors base) est correcte
-- L'API est documentée, testée, conteneurisée et prête pour une démo
+- Le pipeline tourne de bout en bout sans accroc, y compris via Docker — c'est la base pour une démo propre
+- La fidélité est meilleure que ce que j'attendais (0.740) : le modèle ne part pas dans des réponses inventées, il reste ancré dans les documents fournis
+- Les cas limites (hors Île-de-France, question sans résultat) sont bien gérés — le système sait dire qu'il ne sait pas
+- L'API est documentée, testée et conteneurisée
 
 ### Limites du POC
 
@@ -499,6 +494,8 @@ Le script est intégré dans le pipeline CI (GitHub Actions) pour surveiller la 
 ### Améliorations possibles
 
 **À court terme :**
+
+Si je devais continuer ce projet, la priorité serait clairement le filtrage par métadonnées. C'est le point faible le plus visible : FAISS ne sait pas qu'on veut des événements *ce week-end*, il ne fait que de la similarité sémantique. Ajouter un pré-filtre sur les dates et les départements améliorerait directement la `context_precision`.
 
 - **Filtrage par métadonnées** (date, département) avant le retrieval FAISS pour améliorer la précision sur les questions temporelles.
 - **Base de données locale** (SQLite ou PostgreSQL) pour ne re-embedder que les nouveaux événements à chaque mise à jour et réduire les coûts API.

@@ -5,7 +5,7 @@ class AskRequest(BaseModel):
     question: str = Field(
         ...,
         description="Question en langage naturel sur les événements culturels.",
-        examples=["Quels concerts ont lieu à Paris ce week-end ?"],
+        examples=["Quels concerts gratuits ont lieu en Île-de-France ?"],
     )
 
 
