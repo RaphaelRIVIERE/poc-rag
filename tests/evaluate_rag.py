@@ -5,17 +5,12 @@ import time
 from pathlib import Path
 from datetime import datetime
 
-THRESHOLDS = {
-    "answer_relevancy":  0.70,
-    "faithfulness":      0.65,
-    "context_precision": 0.45,
-    "context_recall":    0.70,
-}
-
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from dotenv import load_dotenv
 load_dotenv()
+
+from scripts.show_eval import THRESHOLDS, print_metrics_summary
 
 import os
 from datasets import Dataset
@@ -95,26 +90,14 @@ def collect_answers(annotations: list[dict]) -> list[dict]:
 
 def print_summary(result) -> dict[str, float]:
     """Affiche le résumé et retourne les moyennes par métrique."""
-    print("\n" + "=" * 60)
-    print("RÉSULTATS D'ÉVALUATION RAG (Ragas)")
-    print("=" * 60)
     df = result.to_pandas()
-    averages = {}
-    for metric in ["answer_relevancy", "faithfulness", "context_precision", "context_recall"]:
-        if metric in df.columns:
-            avg = df[metric].mean()
-            averages[metric] = avg
-            threshold = THRESHOLDS.get(metric)
-            status = "✓" if threshold is None or avg >= threshold else "✗"
-            threshold_str = f"  (seuil : {threshold:.2f})" if threshold is not None else ""
-            print(f"  {status} {metric:<25} : {avg:.3f}{threshold_str}")
-    print("=" * 60)
+    metrics = ["answer_relevancy", "faithfulness", "context_precision", "context_recall"]
+    averages = {metric: df[metric].mean() for metric in metrics if metric in df.columns}
+    print_metrics_summary(averages)
     print("\nDétail par question :")
     for i, row in enumerate(df.itertuples(), 1):
         scores = " | ".join(
-            f"{m[:10]}={getattr(row, m):.2f}"
-            for m in ["answer_relevancy", "faithfulness", "context_precision", "context_recall"]
-            if m in df.columns
+            f"{m[:10]}={getattr(row, m):.2f}" for m in metrics if m in df.columns
         )
         print(f"  Q{i:02d} → {scores}")
     print("=" * 60)

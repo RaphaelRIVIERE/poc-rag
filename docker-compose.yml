@@ -1,0 +1,25 @@
+services:
+  # Prépare les données pour l'API
+  pipeline:
+    build: .
+    command: >
+      sh -c "python scripts/fetch_events.py &&
+             python scripts/clean_events.py &&
+             python scripts/build_index.py"
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+      - ./index:/app/index
+
+  # Lance l'API une fois le pipeline terminé avec succès
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+      - ./index:/app/index
+    depends_on:
+      pipeline:
+        condition: service_completed_successfully
