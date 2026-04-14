@@ -15,7 +15,8 @@ poc-rag/
 │   ├── fetch_events.py   # Récupération des événements Open Agenda
 │   ├── clean_events.py   # Nettoyage et structuration des données
 │   ├── build_index.py    # Vectorisation et construction de l'index FAISS
-│   └── rag_chain.py      # Pipeline RAG (FAISS + Mistral)
+│   ├── rag_chain.py      # Pipeline RAG (FAISS + Mistral)
+│   └── test_imports.py   # Vérification des dépendances
 ├── tests/
 │   ├── test_preprocessing.py
 │   ├── test_build_index.py
@@ -26,11 +27,18 @@ poc-rag/
 ├── data/             # Données brutes et nettoyées (non versionnées)
 ├── index/            # Index FAISS sauvegardé (non versionné)
 ├── docs/             # Rapport technique et présentation
+├── docker-compose.yml
 ├── Dockerfile
 ├── requirements.txt
 ├── .env.example
 └── README.md
 ```
+
+## Prérequis
+
+- Python 3.10+
+- Docker et Docker Compose (pour le mode conteneur)
+- Une clé API [Mistral AI](https://console.mistral.ai/)
 
 ## Installation
 
@@ -65,10 +73,9 @@ cp .env.example .env
 | Variable | Description |
 |---|---|
 | `MISTRAL_API_KEY` | Clé API Mistral AI |
-| `OPENAGENDA_API_KEY` | Clé API OpenAgenda |
-| `API_KEY` | Hash SHA-256 de la clé protégeant l'endpoint `/rebuild` |
+| `API_KEY` | Hash SHA-256 de votre clé secrète pour protéger l'endpoint `/rebuild` |
 
-Pour générer le hash de votre clé :
+> **Important :** dans le `.env`, renseigner le **hash**, pas la clé brute. Pour le générer :
 
 ```bash
 python3 -c "import hashlib; print(hashlib.sha256(b'votre-cle-secrete').hexdigest())"
@@ -116,7 +123,21 @@ uvicorn api.main:app --reload
 
 L'API est accessible sur `http://localhost:8000`. La documentation interactive Swagger est disponible sur `http://localhost:8000/docs`.
 
-### Lancer l'API avec Docker
+### Lancer le système complet avec Docker Compose
+
+```bash
+docker compose up
+```
+
+Lance automatiquement les deux étapes :
+1. **`pipeline`** — récupère les événements, nettoie les données et construit l'index FAISS
+2. **`api`** — démarre l'API FastAPI une fois le pipeline terminé
+
+L'API est accessible sur `http://localhost:8000` dès que le service `api` est démarré.
+
+### Lancer uniquement l'API avec Docker
+
+Si les données et l'index sont déjà générés en local :
 
 ```bash
 # Builder l'image
@@ -129,8 +150,6 @@ docker run -p 8000:8000 \
   --env-file .env \
   puls-events-rag
 ```
-
-> Prérequis : les données et l'index doivent être générés en local avant de lancer le conteneur (étapes 1 à 3 ci-dessus).
 
 ### Utiliser l'API
 

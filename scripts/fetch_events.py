@@ -11,7 +11,7 @@ LOCATION_FILTER = "location_region='Île-de-France'"
 # ou : "location_department='974'"  # La Réunion
 # ou : "location_city='Paris'"
 
-DATE_START = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+DATE_START = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
 DATE_END   = (datetime.now() + timedelta(days=180)).strftime("%Y-%m-%d")
 
 WHERE_FILTER = (
